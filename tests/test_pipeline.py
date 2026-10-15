@@ -41,7 +41,7 @@ class Transport:
             private = {**body["context"], "buildProof": {"job_id": "a" * 32, "revision": "b" * 64,
                 "project_id": "web_" + body["projectId"], "state": "completed_review_required",
                 "proof_status": "proof_verified", "artifact_sha256": "c" * 64,
-                "preview_url": "https://mockups.example.invalid/maquettes/" + "a" * 32 + "/index.html"}}
+                "preview_url": "https://mockups.example.invalid/maquettes/" + "a" * 32 + "/"}}
             reply = "Maquette fictive en attente de validation."
         elif self.mode == "incomplete":
             public = {"state": "BLOCKED", "questions": [], "missingFields": [], "reasonCodes": ["DOCUMENT_PAGE_COVERAGE_INCOMPLETE"]}
@@ -293,6 +293,20 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(PortalError):
             approve(self.store, self.transport, self.project["id"], "a" * 32, "b" * 64, "d" * 64)
         self.assertIsNone(self.current()["preview"])
+
+    def test_proof_keeps_the_builders_canonical_url_and_exact_target(self):
+        job = "a" * 32
+        url = "https://mockups.example.invalid/maquettes/" + job + "/"
+        proof = {"project_id": "web_" + self.project["id"], "job_id": job,
+                 "revision": "b" * 64, "artifact_sha256": "c" * 64,
+                 "state": "completed_review_required", "proof_status": "proof_verified",
+                 "preview_url": url}
+        self.assertEqual(pipeline.validate_proof(self.project["id"], {"buildProof": proof})["preview_url"], url)
+        for other in (url + "index.html", url + "?redirect=1", url.replace(job, "d" * 32),
+                      url.replace("https:", "http:"), url.replace("://", "://evil."), url[:-1]):
+            self.assertNotEqual(other, url)
+            with self.subTest(url=other), self.assertRaises(PortalError):
+                pipeline.validate_proof(self.project["id"], {"buildProof": {**proof, "preview_url": other}})
 
 
 if __name__ == "__main__":

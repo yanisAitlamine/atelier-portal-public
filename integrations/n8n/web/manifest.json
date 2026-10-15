@@ -21,7 +21,7 @@
     "decision": {
       "id": "EXAMPLE_WORKFLOW_009",
       "name": "PORTAIL — Décision Jev et citations du brief",
-      "versionId": "00000000-0000-4000-8000-000000000017",
+      "versionId": "00000000-0000-4000-8000-000000000018",
       "active": false,
       "availableInMCP": false,
       "nodeCount": 13
@@ -29,7 +29,7 @@
     "entry": {
       "id": "EXAMPLE_WORKFLOW_003",
       "name": "PORTAIL — Dialogue, Drive et maquette revue",
-      "versionId": "00000000-0000-4000-8000-000000000022",
+      "versionId": "00000000-0000-4000-8000-000000000010",
       "active": false,
       "availableInMCP": false,
       "nodeCount": 25

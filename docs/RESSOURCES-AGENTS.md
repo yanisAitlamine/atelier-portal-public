@@ -56,3 +56,18 @@ décrits uniquement dans la documentation privée de l'opérateur. Demander cet
 accès au responsable avec sa propre identité ; ne pas ouvrir la base brute ni
 chercher un secret pour contourner un refus. L'accès au code GitHub n'accorde
 pas l'accès aux traces ou aux comptes clients.
+
+## Contrat canonique de la maquette
+
+Le reçu vérifié du constructeur utilise une URL de répertoire canonique :
+`https://mockups.example.invalid/maquettes/<job>/`. Le serveur et l'adaptateur
+comparent strictement cette URL au job attendu. Ne pas ajouter `index.html`,
+retirer la barre finale, ajouter une requête, un fragment ou un autre chemin :
+ces variantes ne satisfont pas la preuve de livraison. Le domaine donné ici
+est un exemple réservé ; la correspondance réelle reste privée.
+
+Le succès exige aussi le bon projet, la bonne révision, l'empreinte et la revue
+indépendante. Un lien accessible seul ne prouve jamais la validation. Les tests
+`tests/test_pipeline.py` et `integrations/n8n/web-adapter.test.cjs` couvrent le
+reçu canonique et les variantes refusées. Cette correction de source n'annonce
+aucune installation du service ou activation du workflow.

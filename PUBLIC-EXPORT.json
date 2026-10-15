@@ -53,9 +53,9 @@
     "docs/SOURCE-SAFETY.md"
   ],
   "verification": {
-    "python_public_tests": 78,
+    "python_public_tests": 79,
     "private_operational_test_intentionally_omitted": 1,
-    "node_adapter_decision_scan_tests": 100,
+    "node_adapter_decision_scan_tests": 101,
     "pure_engine_cases": 56,
     "offline_workflow_contracts": 2,
     "isolated_http_e2e_groups": 10,
@@ -72,5 +72,15 @@
     "Private operational documentation and mappings intentionally excluded"
   ],
   "excluded_private_test": "Static operational-wrapper test omitted because its private deployment recipe is not part of the public source; pure diagnostics and hook tests are retained.",
-  "files": 60
+  "files": 60,
+  "latest_update": "Strict canonical directory URL contract and refusal regressions; installation-specific documentation excluded.",
+  "latest_source_paths": [
+    "integrations/n8n/web-adapter.cjs",
+    "integrations/n8n/web-adapter.test.cjs",
+    "integrations/n8n/web/entry.sdk.js",
+    "integrations/n8n/web/manifest.json",
+    "server/pipeline.py",
+    "tests/test_pipeline.py"
+  ],
+  "public_fixture_adaptation": "Forged-host test mutations use a hostname prefix so they remain effective with reserved .invalid hosts; each mutated URL must differ from the canonical fixture."
 }

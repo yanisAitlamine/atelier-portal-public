@@ -165,7 +165,7 @@ function polled(p, response) {
   let proof;
   if (done) {
     const a=response.artifact;
-    check(a && a.verified === true && a.review_passed === true && a.job_id === expected.jobId && a.revision === expected.revision && /^[a-f0-9]{64}$/.test(a.sha256 || '') && a.url === 'https://mockups.example.invalid/maquettes/'+expected.jobId+'/index.html', 'WEB_BUILD_PROOF_INVALID');
+    check(a && a.verified === true && a.review_passed === true && a.job_id === expected.jobId && a.revision === expected.revision && /^[a-f0-9]{64}$/.test(a.sha256 || '') && a.url === 'https://mockups.example.invalid/maquettes/'+expected.jobId+'/', 'WEB_BUILD_PROOF_INVALID');
     proof={job_id:expected.jobId,revision:expected.revision,project_id:response.project_id,
       state:response.state,proof_status:'proof_verified',artifact_sha256:a.sha256,preview_url:a.url};
   }

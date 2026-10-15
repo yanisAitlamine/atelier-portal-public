@@ -24,7 +24,9 @@ CREATE TABLE IF NOT EXISTS pipeline_build_requests(
 HEX = re.compile(r"[a-f0-9]{64}")
 JOB = re.compile(r"[a-f0-9]{32}")
 FOLDER = re.compile(r"https://drive\.google\.com/(?:drive/(?:u/[0-9]+/)?folders/|folders/)([A-Za-z0-9_-]{10,160})(?:\?[^#\s]*)?")
-PREVIEW = re.compile(r"https://mockups\.example\.invalid/maquettes/([a-f0-9]{32})/index\.html")
+# The builder verifies and returns its canonical directory URL. Keep this exact
+# identity through review and delivery instead of inventing an index.html URL.
+PREVIEW = re.compile(r"https://mockups\.example\.invalid/maquettes/([a-f0-9]{32})/")
 
 
 def initialize(db):
