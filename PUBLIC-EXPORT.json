@@ -1,24 +1,31 @@
 {
-  "source_snapshot": "private snapshot, fixed before export",
-  "inherited_git_history": false,
-  "files": 51,
+  "source_snapshot": "fixed private source snapshot; no private Git history imported",
+  "inherited_private_git_history": false,
+  "public_history_preserved": true,
   "excluded_source_paths": [
     "AGENTS.md",
     "Ansible/README.md",
     "Ansible/deploy.yml",
+    "Ansible/diagnostics.yml",
+    "Ansible/templates/atelier-portal-diagnostics.j2",
     "Ansible/templates/atelier-portal.service.j2",
     "README.md",
     "docs/API.md",
     "docs/BACKLOG.md",
     "docs/COLLABORATION.md",
+    "docs/DIAGNOSTICS.md",
     "docs/E2E.md",
     "docs/HANDOFF.md",
     "docs/INTEGRATION.md",
     "docs/MAIL-PARITY.md",
-    "docs/SUPPORT.md"
+    "docs/SOURCE-SAFETY.md",
+    "docs/SUPPORT.md",
+    "docs/UNIFIED-CHAT.md"
   ],
   "rewritten_source_paths": [
     ".gitignore",
+    "AGENTS.md",
+    "README.md",
     "integrations/n8n/README.md",
     "integrations/n8n/build_web_workflows.py",
     "integrations/n8n/mail-core/PROVENANCE.json",
@@ -33,35 +40,37 @@
     "integrations/n8n/web/reader.sdk.js",
     "integrations/n8n/workflow.json",
     "server/pipeline.py",
+    "tests/test_diagnostics.py",
     "tests/test_pipeline.py"
   ],
   "placeholder_counts": {
     "workflow_ids": 9,
     "credential_ids": 7,
-    "installation_uuids": 46,
-    "reader_accounts": 1
+    "installation_uuids": 46
   },
-  "limitations": [
-    "No external provider, account or deployment test",
-    "Excluded operational docs and playbooks must remain private",
-    "Private-to-public identifier mapping intentionally not exported"
+  "new_public_guides": [
+    "docs/RESSOURCES-AGENTS.md",
+    "docs/SOURCE-SAFETY.md"
   ],
   "verification": {
-    "python_unit_tests": 61,
-    "isolated_http_e2e_groups": 10,
+    "python_public_tests": 78,
+    "private_operational_test_intentionally_omitted": 1,
+    "node_adapter_decision_scan_tests": 100,
     "pure_engine_cases": 56,
-    "web_adapter_cases": 26,
     "offline_workflow_contracts": 2,
+    "isolated_http_e2e_groups": 10,
     "workflow_generator": "passed_without_external_calls",
-    "typescript": "passed",
-    "frontend_build": "passed_with_supported_Node24",
+    "typescript": "passed_on_canonical_server",
+    "frontend_build": "passed_on_canonical_server",
     "external_provider_calls": 0,
     "real_emails_sent": 0,
-    "real_builds_started": 0
+    "real_constructions_started": 0
   },
-  "sanitization_checks": {
-    "remaining_signature_or_private_installation_matches": [],
-    "excluded_runtime_folders_present": false,
-    "all_example_credentials_remain_unusable": true
-  }
+  "limitations": [
+    "Source preparation is distinct from service installation",
+    "No external provider, account, real log access or deployment test",
+    "Private operational documentation and mappings intentionally excluded"
+  ],
+  "excluded_private_test": "Static operational-wrapper test omitted because its private deployment recipe is not part of the public source; pure diagnostics and hook tests are retained.",
+  "files": 60
 }

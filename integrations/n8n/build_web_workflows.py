@@ -17,10 +17,14 @@ def build(reference, output, child_ids=None):
     engine = (ROOT / "mail-core/engine.cjs").read_text(encoding="utf-8")
     intake = (ROOT / "mail-core/intake.cjs").read_text(encoding="utf-8")
     assets = (ROOT / "mail-core/assets.cjs").read_text(encoding="utf-8")
+    classifier = (ROOT / "web-decision.cjs").read_text(encoding="utf-8")
+    scanner = (ROOT / "source-scan.cjs").read_text(encoding="utf-8")
     adapter = (ROOT / "web-adapter.cjs").read_text(encoding="utf-8")
     adapter = adapter.replace("const E = require('./mail-core/engine.cjs');", "const E=__ENGINE;")
     adapter = adapter.replace("const I = require('./mail-core/intake.cjs');", "const I=__INTAKE;")
     adapter = adapter.replace("const A = require('./mail-core/assets.cjs');", "const A=__ASSETS;")
+    adapter = adapter.replace("const D = require('./web-decision.cjs');", "const D=__DECISION;")
+    adapter = adapter.replace("const S = require('./source-scan.cjs');", "")
     module = lambda name, text: "const " + name + "=(()=>{const module={exports:{}};" + text + ";return module.exports;})();\n"
     templates = json.loads((ROOT / "mail-core/graphs.json").read_text(encoding="utf-8")) if reference is None else None
     def read(name):
@@ -32,7 +36,7 @@ def build(reference, output, child_ids=None):
                 item["parameters"]["jsCode"] = prefix + code["tail"]
         return graph
     prefixes = {"E": module("E", engine), "intake": module("intake", intake)}
-    web_prefix = module("__ENGINE", engine) + module("__INTAKE", intake) + module("__ASSETS", assets) + module("W", adapter)
+    web_prefix = module("__ENGINE", engine) + module("__INTAKE", intake) + module("__ASSETS", assets) + module("__DECISION", classifier) + module("S", scanner) + module("W", adapter)
 
     reader = read("EXAMPLE_WORKFLOW_001")
     reader["name"] = "PORTAIL — Sources Drive privées"
@@ -54,7 +58,8 @@ def build(reference, output, child_ids=None):
             tail = n["parameters"]["jsCode"].rsplit(";return module.exports;})();", 1)[1]
             if n["name"] == "Vérifier la provenance et préparer Jev":
                 tail = "const c=E.normalizeInput($json.context);if(!c.project_id.startsWith('web_')||$json.binding?.channel!=='web'||$json.binding.project_id!==c.project_id)throw Error('WEB_DECISION_SOURCE_INVALID');return [{json:{context:c,binding:$json.binding,request:E.buildJevExtractionRequest(c),can_call:c.input_issues.length===0}}];"
-            n["parameters"]["jsCode"] = prefixes["E"] + tail
+            tail = tail.replace("E.buildJevDecisionRequest(c)", "D.request(E.buildJevDecisionRequest(c))")
+            n["parameters"]["jsCode"] = prefixes["E"] + module("D", classifier) + tail
     final_decision = "Restituer la décision au portail"
     decision["nodes"].append({"name":final_decision,"type":"n8n-nodes-base.code","typeVersion":2,
         "position":[1800,0],"parameters":{"mode":"runOnceForAllItems","jsCode":"return [{json:$input.first().json}];"}})
@@ -92,7 +97,10 @@ def build(reference, output, child_ids=None):
     source_gate = switch("Dossier autorisé présent ?", "={{ $json.source ? 0 : 1 }}", 2)
     request = code("Préparer la lecture autorisée", "return [{json:W.readerInput($('Vérifier le contexte web').first().json)}];")
     reader_call = sub("Lire les sources Drive du projet", "reader")
-    join = code("Rattacher les documents et images", "const x=$input.first();return [{json:{parent:{document_sources:x.json},binding:x.json.binding},binary:x.binary}];")
+    scan_node = code("Scanner les sources avant tout modèle", "const x=$input.first();const scanned=S.scanSources(x.json);return [{json:{reader:scanned.reader,scan:scanned.scan,blocked:scanned.blocked},binary:x.binary}];")
+    scan_gate = switch("Sources admises comme données ?", "={{ $json.blocked ? 1 : 0 }}", 2)
+    quarantine = code("Bloquer les instructions suspectes", "return [{json:W.sourceBlocked($('Vérifier le contexte web').first().json,$json.reader,$json.scan)}];")
+    join = code("Rattacher les documents et images", "const x=$input.first();return [{json:{parent:{document_sources:x.json.reader,source_scan:x.json.scan},binding:x.json.reader.binding},binary:x.binary}];")
     image_call = sub("Vérifier et déposer les images du projet", "assets")
     context_node = code("Préparer la décision du projet", "const p=$('Vérifier le contexte web').first().json;const reader=$json.parent?.document_sources;const bundle=$json.parent?.asset_bundle;return [{json:{context:W.context(p,reader),binding:{channel:'web',project_id:'web_'+p.projectId},...(reader?{reader}:{}),...(bundle?{bundle}:{})}}];")
     jev_call = sub("Décider avec les sources du brief", "decision")
@@ -120,16 +128,16 @@ def build(reference, output, child_ids=None):
     poll = add("Relire la preuve fraîche du travail", "n8n-nodes-base.httpRequest", params, native_poll["typeVersion"], native_poll["credentials"])
     proof = code("Vérifier réalisation, revue et référence", "return [{json:W.polled($('Vérifier le contexte web').first().json,$json)}];")
     respond = add("Rendre le résultat privé au portail", "n8n-nodes-base.respondToWebhook", {"respondWith": "json", "responseBody": "={{ $json }}", "options": {}}, 1.5)
-    for a,b in [(start,verified),(verified,route),(request,reader_call),(reader_call,join),(join,image_call),(image_call,context_node),(context_node,jev_call),(jev_call,guidance),(guidance,reply_gate),(model["name"],rendered),(rendered,final_result),(fixed,final_result),(final_result,respond),(mission,submit),(submit,receipt),(receipt,respond),(poll,proof),(proof,respond)]:
+    for a,b in [(start,verified),(verified,route),(request,reader_call),(reader_call,scan_node),(scan_node,scan_gate),(quarantine,final_result),(join,image_call),(image_call,context_node),(context_node,jev_call),(jev_call,guidance),(guidance,reply_gate),(model["name"],rendered),(rendered,final_result),(fixed,final_result),(final_result,respond),(mission,submit),(submit,receipt),(receipt,respond),(poll,proof),(proof,respond)]:
         edge(a,b)
     edge(route,source_gate,0); edge(route,mission,1); edge(route,poll,2)
     edge(source_gate,request,0); edge(source_gate,context_node,1)
+    edge(scan_gate,join,0); edge(scan_gate,quarantine,1)
     edge(reply_gate,model["name"],0); edge(reply_gate,fixed,1)
     entry = {"name": "PORTAIL — Dialogue, Drive et maquette revue", "nodes": nodes, "connections": connections,
              "nodeGroups": [
                  {"name": "Vérifier la demande", "nodeNames": [verified,route], "description": "Authentifier le contrat web et choisir analyse, génération explicitement validée ou simple suivi."},
-                 {"name": "Lire les sources privées", "nodeNames": [source_gate,request,reader_call,join,image_call,context_node], "description": "Dossier autorisé, extraction complète et images liées au projet, sans exposer les clés."},
-                 {"name": "Décider et conseiller", "nodeNames": [jev_call,guidance,reply_gate,model["name"],rendered,fixed,final_result], "description": "Citations et décision Jev du pipeline mail, puis réponse dans la conversation du site."},
+                 {"name": "Contrôler les sources et décider", "nodeNames": [source_gate,request,reader_call,scan_node,scan_gate,quarantine,join,image_call,context_node,jev_call,guidance,reply_gate,model["name"],rendered,fixed,final_result], "description": "Dossier autorisé et contrôle avant modèle/images ; blocage sûr ou décision Jev citée et réponse dans l’unique conversation du site."},
                  {"name": "Construire sur demande", "nodeNames": [mission,submit,receipt], "description": "Clic explicite, prompt sourcé, cible de test fixe et reçu durable, sans livraison automatique."},
                  {"name": "Suivre la revue", "nodeNames": [poll,proof], "description": "Lecture de l’état et vérification fraîche de la preuve ; la validation humaine reste distincte."},
              ]}
@@ -147,7 +155,7 @@ def emit_sdk(key, graph, output):
     lines = ["import { workflow, node, trigger, expr } from '@n8n/workflow-sdk';"]
     names = {n["name"]: "n"+str(i) for i,n in enumerate(graph["nodes"])}
     shared = {}
-    sample={"action":"message","source":None,"brief":{},"history":[],"pricing":{},"decision":{},"facts":{},
+    sample={"action":"message","source":None,"blocked":False,"reader":{},"scan":{},"brief":{},"history":[],"pricing":{},"decision":{},"facts":{},
             "context":{"buildJob":{"jobId":"a"*32}},"result":{"pipeline":{"state":"CONTINUE"}},
             "route":"DONE","url":"https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)",
             "request":{},"has_images":False,"can_call":True,"needs_confirmation":False,

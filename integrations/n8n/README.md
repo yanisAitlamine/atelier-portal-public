@@ -1,32 +1,31 @@
-# Offline n8n integration templates
+# Modèles n8n hors ligne
 
-This directory contains example source templates, not deployable operator
-configuration. All installation-specific workflow IDs, credential references,
-addresses and reader-account details were replaced by deterministic examples.
-No secret value or credential can be recovered from those placeholders.
+Ces sources sont des exemples assainis. Domaines réservés, compte lecteur et
+références EXAMPLE ne donnent aucun accès réel. Configurer les correspondances
+avec l'opérateur dans un espace privé, sans les reverser dans Git.
 
-- `workflow.json`: original dialogue/prototype transport template.
-- `support-workflow.json`: explicit support transport template.
-- `mail-core/`: pinned pure evidence, source-intake and image-manifest logic.
-- `web-adapter.cjs`: web identity, source consent, decision and proof adapter.
-- `mail-core/graphs.json`: example node definitions used by the generator.
-- `web/*.sdk.js`: example SDK sources, inactive until privately configured.
-- `web/manifest.json` and `web/child-ids.json`: example relationships only.
-
-Generate reviewable examples locally:
+- `web-decision.cjs` : demande de classification Jev et validation du résultat.
+- `source-scan.cjs` : contrôle heuristique avant admission des sources Drive.
+- `mail-core/` : logique pure des citations, du lecteur et des images.
+- `web-adapter.cjs` : identité web, consentement, décisions et preuve d'artefact.
+- `mail-core/graphs.json` : exemples des nœuds utilisés par le générateur.
+- `web/*.sdk.js` : modèles SDK à configurer ; `web/manifest.json` et
+  `web/child-ids.json` décrivent uniquement des relations d'exemple.
+- `workflow.json`, `support-workflow.json` : transports de dialogue et support.
 
 ```sh
-python integrations/n8n/build_web_workflows.py --output .generated/workflows
+python3 integrations/n8n/build_web_workflows.py --output .generated/workflows
 ```
 
-The generator does not contact n8n. Generated files are still examples and need
-private operator-owned credentials, URLs, workflow IDs and caller restrictions.
-Store the real mapping outside this repository. Keep OAuth read-only and ask
-for explicit source consent. The client must own the project; Drive evidence
-must match that project's actual client contribution and complete document read.
+La génération ne contacte pas n8n. Ne pas importer ni activer aveuglément ces
+modèles en production. Les identifiants, callers, TLS, URLs, compte Drive et
+cibles de construction doivent être vérifiés et configurés par l'opérateur.
+Drive passe par le partage explicite d'un dossier en lecture au compte configuré,
+pas par une connexion OAuth personnelle fournie dans ce dépôt. Garder sources,
+jetons et historiques d'exécution privés. Modèles sans stockage fournisseur,
+rétention d'exécution et retries automatiques doivent rester explicitement revus.
 
-Prototype construction and artifact checks use an example reserved host and
-root. Replace the target consistently in private configuration and adapters,
-reserve the real target, and preserve queue/locking and human delivery approval.
-A test stub or a READY decision alone does not attest a real build or delivery.
-Never run a production integration merely to verify these source templates.
+Une décision READY ne vaut ni construction autorisée ni livraison. Préserver
+la réservation de cible, la queue, les verrous et la validation opérateur de
+l'artefact exact. Les tests sont fictifs et n'attestent aucun service externe.
+Lire [les ressources des agents](../../docs/RESSOURCES-AGENTS.md).

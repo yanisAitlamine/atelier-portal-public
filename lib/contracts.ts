@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_MESSAGE_CHARS } from "./limits";
 const short = z.string().trim().min(2).max(160);
 const url = z.union([
   z.literal(""),
@@ -13,7 +14,7 @@ export const briefSchema = z
   .object({
     businessName: short,
     industry: short,
-    description: z.string().trim().min(20).max(4000),
+    description: z.string().trim().min(20).max(20000),
     audience: z.string().trim().min(3).max(300),
     pages: z
       .array(z.enum(["Home", "About", "Services", "Contact", "Gallery", "FAQ"]))
@@ -23,7 +24,7 @@ export const briefSchema = z
     website: url.default(""),
   })
   .strict();
-const text = z.string().trim().min(3).max(3000);
+const text = z.string().trim().min(3).max(MAX_MESSAGE_CHARS);
 const requestId = z.string().uuid();
 const serviceCategory = z.enum([
   "small_edit",
@@ -116,6 +117,8 @@ export type Project = {
   pipeline?: {
     state: string; questions: string[]; missingFields: string[]; reasonCodes?: string[]; resumes?: number;
     facts?: { field: string; value: string; quote: string; source: string }[];
+    classification?: { kind: string; messageId: string; confidence: number; probability: number; reason: string };
+    sourceScan?: { policy: string; status: string; findingCount: number; reasonCodes: string[] };
     sources?: { folderUrl?: string; status: string; files: { name: string; mimeType: string; version: string }[]; pages?: number; characters?: number };
     build?: { jobId: string; status: string };
   };

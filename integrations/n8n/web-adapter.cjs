@@ -2,6 +2,8 @@
 const E = require('./mail-core/engine.cjs');
 const I = require('./mail-core/intake.cjs');
 const A = require('./mail-core/assets.cjs');
+const D = require('./web-decision.cjs');
+const S = require('./source-scan.cjs');
 const uuid = v => typeof v === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(v);
 const clone = v => JSON.parse(JSON.stringify(v));
 function check(value, reason) { if (!value) throw Error(reason); }
@@ -21,7 +23,7 @@ function validate(p) {
     check(Array.isArray(p.history) && p.history.length > 0 && p.history.length <= 102 && typeof p.historyComplete === 'boolean', 'WEB_HISTORY_INVALID');
     const ids = new Set();
     for (const m of p.history) {
-      check(m && typeof m.id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(m.id) && !ids.has(m.id) && ['client','assistant'].includes(m.role) && typeof m.text === 'string' && m.text.trim().length > 0 && m.text.length < 16000, 'WEB_MESSAGE_INVALID');
+      check(m && typeof m.id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(m.id) && !ids.has(m.id) && ['client','assistant'].includes(m.role) && typeof m.text === 'string' && m.text.trim().length > 0 && m.text.length <= (m.kind==='web_brief'?50000:20000), 'WEB_MESSAGE_INVALID');
       ids.add(m.id);
     }
     check(p.history.some(m => m.id === p.latestMessageId && m.role === 'client'), 'WEB_LATEST_MESSAGE_MISSING');
@@ -59,6 +61,7 @@ function context(p, reader) {
   if (p.source) {
     const requested = sourceRequest(p);
     check(reader && Object.keys(requested.binding).every(k => reader.binding?.[k] === requested.binding[k]) && reader.root_folder_id === requested.root_folder_id, 'WEB_READER_BINDING_MISMATCH');
+    S.assertSourcesSafe(reader);
     base.document_sources = reader;
     base.document_binding = {...requested.binding,client_text:p.source.text};
   } else check(reader === undefined, 'WEB_UNREQUESTED_READER');
@@ -74,6 +77,13 @@ function sourceSummary(reader) {
 function result(p, pipeline, privateState, reply) {
   return {schemaVersion:2,requestId:p.requestId,projectId:p.projectId,revision:p.revision,
     reply,pipeline,private:privateState};
+}
+
+function scanSummary(scan){return {policy:scan.policy,status:scan.status,findingCount:scan.findingCount,reasonCodes:[...new Set(scan.findings.map(f=>f.code))]};}
+function sourceBlocked(p,reader,scan){
+  check(scan.status==='REVIEW_REQUIRED','WEB_SOURCE_SCAN_INVALID');
+  return result(p,{state:'BLOCKED',questions:[],missingFields:[],reasonCodes:['SOURCE_SCAN_REVIEW_REQUIRED'],sources:sourceSummary(reader),sourceScan:scanSummary(scan)},
+    {sourceScan:scanSummary(scan)},'Des instructions suspectes ou une lecture incomplète ont été détectées dans les fichiers. Ils ne sont pas ajoutés au contexte de l’agent. Contactez le support pour les faire vérifier.');
 }
 
 function analysisResult(p, analysis, reader, bundle, reply) {
@@ -93,6 +103,13 @@ function analysisResult(p, analysis, reader, bundle, reply) {
   const pipeline = {state:stopped?'STOPPED':decision.state,questions:decision.questions_to_ask || [],
     missingFields:decision.missing_fields || [],reasonCodes:decision.reason_codes || [],
     ...(reader ? {sources:sourceSummary(reader)}:{})};
+  if(reader)pipeline.sourceScan=scanSummary(S.assertSourcesSafe(reader).scan);
+  if(decision.model_decision){
+    pipeline.classification={...D.classify(decision.model_decision),messageId:p.latestMessageId};
+    if(pipeline.classification.kind==='clarification'&&!['BLOCKED','STOPPED'].includes(pipeline.state)){
+      pipeline.state='CONTINUE';pipeline.questions=['Pouvez-vous préciser si votre demande concerne le contenu, le design, une nouvelle page ou une fonctionnalité ?'];
+    }
+  }
   pipeline.facts=E.REQUIRED.filter(k=>c.facts[k]).map(field=>{
     const f=c.facts[field],e=f.evidence?.[0],doc=c.document_sources?.documents.find(d=>d.source_id===e?.document_source_id);
     return {field,value:Array.isArray(f.value)?f.value.join(', '):f.value,quote:e?.quote||'',
@@ -113,6 +130,7 @@ function buildInput(p) {
   const state = p.context, analysis = state.analysis;
   check(analysis && analysis.context?.project_id === 'web_' + p.projectId, 'WEB_BUILD_CONTEXT_MISMATCH');
   const c = E.normalizeInput(analysis.context);
+  if(c.document_sources)S.assertSourcesSafe(c.document_sources);
   const decision = E.decide(c,{model:'jev-1.13.0',answers:analysis.decision?.model_decision});
   let prompt = E.buildPrompt(c,decision);
   check(decision.state === 'READY' && prompt, 'WEB_BUILD_NOT_READY');
@@ -156,4 +174,4 @@ function polled(p, response) {
     {...p.context,...(proof?{buildProof:proof}:{})},done?'La maquette attend une validation humaine avant livraison.':running?'La construction et la revue sont en cours.':'La construction n’a pas été validée. Contactez le support avant de relancer.');
 }
 
-module.exports={validate,sourceRequest,readerInput,context,sourceSummary,result,analysisResult,buildInput,submitted,polled};
+module.exports={validate,sourceRequest,readerInput,context,sourceSummary,result,analysisResult,buildInput,submitted,polled,scanSummary,sourceBlocked};

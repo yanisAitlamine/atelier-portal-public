@@ -10,6 +10,7 @@ from pathlib import Path
 from app import Store
 from domain import PortalError, now, uid
 from integration import N8nTransport
+import diagnostics
 import pipeline
 
 
@@ -54,6 +55,9 @@ def approve(store, transport, project_id, job_id, revision, sha256):
         project["messages"] = project["messages"][-100:]
         db.execute("UPDATE projects SET revision=?,data=?,updated_at=? WHERE id=? AND owner_id=? AND revision=?",
             (project["revision"], json.dumps(project), project["updatedAt"], project_id, row["owner_id"], saved_revision))
+        diagnostics.emit(db, "generation.reviewed", owner_id=row["owner_id"], project_id=project_id,
+            request_id=project.get("integration", {}).get("requestId"), job_id=job_id,
+            revision=project["revision"], status="DELIVERED")
     return {"projectId": project_id, "version": version, "status": "delivered"}
 
 

@@ -33,6 +33,7 @@ def main():
             raise TimeoutError('Synthetic browser fixture timeout')
         if pipeline_transport:
             pipeline_transport.mode = 'incomplete' if mode == 'incomplete' else 'ready'
+            pipeline_transport.category = json.loads(mode_file.read_text()).get('classification', 'general')
             result = pipeline_transport(payload)
             if payload['action'] == 'message':
                 result['pipeline']['facts'] = [{'field': 'goal', 'value': 'Présenter un atelier fictif',
@@ -41,6 +42,14 @@ def main():
                     result['pipeline']['sources'] = {'status': 'REVIEW_REQUIRED' if mode == 'incomplete' else 'READ', 'files': [
                         {'name': 'Cahier des charges fictif.pdf', 'mimeType': 'application/pdf', 'version': '1'},
                         {'name': 'Image fictive.png', 'mimeType': 'image/png', 'version': '1'}], 'pages': 30, 'characters': 16000}
+                    result['pipeline']['sourceScan'] = {'policy':'drive-source-admission-v1',
+                        'status':'NO_BLOCKING_PATTERN_DETECTED','findingCount':0,'reasonCodes':[]}
+                if mode == 'injection':
+                    result['pipeline'] = {'state':'BLOCKED','questions':[],'missingFields':[],
+                        'reasonCodes':['SOURCE_SCAN_REVIEW_REQUIRED'],'sourceScan':{'policy':'drive-source-admission-v1',
+                        'status':'REVIEW_REQUIRED','findingCount':1,'reasonCodes':['SOURCE_FORGED_ROLE']}}
+                    result['private'] = {}
+                    result['reply'] = 'Les fichiers fictifs suspects sont bloqués avant le modèle. Contactez le support pour une vérification.'
             return result
         return fixture_transport(payload)
     if pipeline_transport:

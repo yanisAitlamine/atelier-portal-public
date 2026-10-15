@@ -9,6 +9,7 @@ from pathlib import Path
 
 from domain import PortalError, exact, now, text
 from integration import N8nTransport
+import diagnostics
 
 EMAIL = re.compile(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+", re.ASCII)
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
@@ -129,6 +130,8 @@ def create_ticket(store, owner, project_id, raw, origin, base_path):
             "message": body, "attachments": attachments}
         db.execute("INSERT INTO support_tickets VALUES (?,?,?,?,?,?,?,?)", (request_id, owner, project_id, current,
             "queued", fingerprint, json.dumps(payload), None))
+        diagnostics.emit(db, "support.queued", owner_id=owner, project_id=project_id,
+                         request_id=request_id, revision=row["revision"], status="queued")
         return {"id": request_id, "status": "queued", "created": current}
 
 
@@ -139,7 +142,13 @@ class SupportWorker:
 
     def recover(self):
         with self.store.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            interrupted = db.execute("SELECT id,owner_id,project_id FROM support_tickets WHERE status='running'").fetchall()
             db.execute("UPDATE support_tickets SET status='unknown' WHERE status='running'")
+            for row in interrupted:
+                diagnostics.emit(db, "support.unknown", owner_id=row["owner_id"],
+                    project_id=row["project_id"], request_id=row["id"],
+                    status="unknown", reason="RESTART_RECOVERY")
 
     def once(self):
         with self.store.connection() as db:
@@ -159,7 +168,11 @@ class SupportWorker:
         except Exception:
             pass  # A lost receipt may follow a successful send. Never retry automatically.
         with self.store.connection() as db:
-            db.execute("UPDATE support_tickets SET status=?,receipt=? WHERE id=? AND status='running'", (status, receipt, row["id"]))
+            changed = db.execute("UPDATE support_tickets SET status=?,receipt=? WHERE id=? AND status='running'", (status, receipt, row["id"]))
+            if changed.rowcount:
+                diagnostics.emit(db, "support.sent" if status == "sent" else "support.unknown",
+                    owner_id=row["owner_id"], project_id=row["project_id"], request_id=row["id"],
+                    status=status, reason="RECEIPT_UNCONFIRMED" if status == "unknown" else None)
         return True
 
     def run(self):

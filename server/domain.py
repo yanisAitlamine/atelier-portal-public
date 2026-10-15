@@ -34,10 +34,20 @@ def exact(obj, keys):
         raise PortalError("Invalid request fields.")
 
 
-def text(value, minimum=3, maximum=3000):
-    if not isinstance(value, str) or not minimum <= len(value.strip()) <= maximum:
+MAX_MESSAGE_CHARS = 20000
+
+
+def text(value, minimum=3, maximum=MAX_MESSAGE_CHARS):
+    if not isinstance(value, str):
         raise PortalError("Check the form fields and try again.")
-    return value.strip()
+    value = value.strip()
+    try:
+        units = len(value.encode("utf-16-le")) // 2
+    except UnicodeError:
+        raise PortalError("Check the form fields and try again.") from None
+    if len(value) < minimum or units > maximum:
+        raise PortalError("Check the form fields and try again.")
+    return value
 
 
 def url(value):
@@ -52,7 +62,7 @@ def url(value):
 def validate_brief(brief):
     exact(brief, ("businessName", "industry", "description", "audience", "pages", "style", "website"))
     result = {"businessName": text(brief["businessName"], 2, 160), "industry": text(brief["industry"], 2, 160),
-              "description": text(brief["description"], 20, 4000), "audience": text(brief["audience"], 3, 300),
+              "description": text(brief["description"], 20, 20000), "audience": text(brief["audience"], 3, 300),
               "website": url(brief["website"])}
     if not isinstance(brief["pages"], list) or not 1 <= len(brief["pages"]) <= 6:
         raise PortalError("Choose between one and six pages.")

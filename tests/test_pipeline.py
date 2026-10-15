@@ -24,6 +24,7 @@ class Transport:
     def __init__(self):
         self.calls = []
         self.mode = "ready"
+        self.category = None
     def __call__(self, body):
         self.calls.append(copy.deepcopy(body))
         if self.mode == "timeout":
@@ -46,6 +47,9 @@ class Transport:
             public = {"state": "BLOCKED", "questions": [], "missingFields": [], "reasonCodes": ["DOCUMENT_PAGE_COVERAGE_INCOMPLETE"]}
             private = {}
             reply = "Les sources fictives sont incomplètes. Aucune construction ne sera lancée."
+        if self.category and body["action"] == "message":
+            public["classification"] = {"kind": self.category, "messageId": body["latestMessageId"],
+                "confidence": .95, "probability": .97, "reason": "CLASSIFICATION_VERIFIED"}
         result = {**{k: body[k] for k in ("schemaVersion", "requestId", "projectId", "revision")},
             "reply": reply, "pipeline": public, "private": private}
         if self.mode == "wrong_project":
@@ -138,6 +142,34 @@ class PipelineTests(unittest.TestCase):
         self.other.call("/api/projects/" + self.project["id"], "PATCH", {"revision": 1,
             "action": {"type": "set_sources", "folderUrl": "https://drive.google.com/drive/folders/fictionalfolder123", "consent": True}}, expected=404)
         self.assertEqual(self.transport.calls, [])
+
+    def test_twenty_thousand_character_message_and_brief_are_accepted(self):
+        self.client.call("/api/projects", "POST", {"brief": {**SAMPLE, "description": "é" * 20000}}, expected=201)
+        self.mutate({"type": "message", "text": "é" * 20000})
+        self.worker.once()
+        self.assertEqual(len(self.transport.calls[-1]["history"][-1]["text"]), 20000)
+        self.assertEqual(self.current()["pipeline"]["state"], "READY")
+        self.mutate({"type": "message", "text": "x" * 20001}, expected=400)
+        self.mutate({"type": "message", "text": "😀" * 10001}, expected=400)
+        self.mutate({"type": "message", "text": "Texte invalide \ud800"}, expected=400)
+
+    def test_decision_classifies_without_manual_topic_and_only_creates_draft(self):
+        self.transport.category = "add_page"
+        self.mutate({"type": "message", "text": "Ajouter une nouvelle page présentant nos ateliers."})
+        self.worker.once()
+        p = self.current()
+        self.assertEqual(p["pipeline"]["classification"]["kind"], "add_page")
+        self.assertEqual(len(p["requests"]), 1)
+        self.assertEqual((p["requests"][0]["category"], p["requests"][0]["cents"], p["requests"][0]["status"]), ("extra_page", 9900, "quoted"))
+        self.assertEqual(p["subscription"], "not_started")
+        self.assertIsNone(p["preview"])
+        self.assertFalse(any(c["action"] == "generate_preview" for c in self.transport.calls))
+
+    def test_unclear_classification_never_creates_a_change_request(self):
+        self.transport.category = "clarification"
+        self.mutate({"type": "message", "text": "Revoir tout cela, peut-être une page ou les couleurs."})
+        self.worker.once()
+        self.assertEqual(self.current()["requests"], [])
 
     def test_preview_feedback_reanalyzes_before_another_generation(self):
         self.ready()

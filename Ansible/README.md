@@ -1,9 +1,9 @@
-# Deployment boundary
+# Limite de déploiement
 
-The private installation-specific playbook, paths, account mappings and proxy
-recipe are intentionally excluded. Prepare a separate tool-specific deployment
-recipe for the maintainer's approved server and exact release. Keep the canonical
-Git repository and runtime there, secrets and durable data outside releases,
-and bind the application to loopback behind approved private HTTPS.
-Do not run unrelated reserved roles, access a personal control machine, or
-infer deployment authorization from a source commit or this public export.
+Les recettes, chemins, groupes, wrappers et permissions de l'exploitation privée
+sont volontairement exclus. Préparer une recette propre à l'outil pour le
+serveur approuvé et la release exacte ; conserver code canonique et service sur
+ce serveur, secrets et données durables hors release, service en loopback derrière
+HTTPS privé. Ne pas lancer d'anciens rôles réservés ni accéder à une machine
+personnelle de contrôle. Un commit public n'autorise aucun déploiement, accès aux
+journaux réels ou ajout d'un compte à un groupe privilégié.

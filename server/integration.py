@@ -10,6 +10,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 from domain import CATALOG, PortalError, now, uid
+import diagnostics
 import pipeline
 
 SCHEMA = """
@@ -103,6 +104,9 @@ def enqueue(db, owner, previous, project, action, protocol=1):
                 project["preview"].update(status="changes_requested", approvalAt=None)
         db.execute("INSERT INTO integration_jobs VALUES (?,?,?,?,?,?)", (request_id, project["id"], owner,
             "queued", int(time.time()), json.dumps(body)))
+        if action["type"] == "generate_preview":
+            diagnostics.emit(db, "generation.queued", owner_id=owner, project_id=project["id"],
+                             request_id=request_id, revision=project["revision"], status="queued")
         return
     payload = {"schemaVersion": 1, "requestId": request_id, "projectId": project["id"],
         "revision": project["revision"], "action": action["type"], "brief": project["brief"],
@@ -119,6 +123,9 @@ def enqueue(db, owner, previous, project, action, protocol=1):
         payload["messages"].pop(0)
     db.execute("INSERT INTO integration_jobs VALUES (?,?,?,?,?,?)", (request_id, project["id"], owner,
         "queued", int(time.time()), json.dumps(payload)))
+    if action["type"] == "generate_preview":
+        diagnostics.emit(db, "generation.queued", owner_id=owner, project_id=project["id"],
+                         request_id=request_id, revision=project["revision"], status="queued")
 
 
 def validate_result(payload, result):
@@ -150,7 +157,7 @@ class IntegrationWorker:
         self.store, self.transport = store, transport
         self.stop = threading.Event()
 
-    def finish(self, row, result=None, status="succeeded"):
+    def finish(self, row, result=None, status="succeeded", reason=None):
         payload = json.loads(row["payload"])
         if result is not None:
             validate_result(payload, result)
@@ -164,6 +171,7 @@ class IntegrationWorker:
                 return
             if not project or project.get("integration", {}).get("requestId") != row["id"]:
                 db.execute("UPDATE integration_jobs SET status='stale',payload='{}' WHERE id=?", (row["id"],))
+                self.trace_outcome(db, row, payload, status="stale", reason="STALE_RESULT")
                 return
             if project and project.get("integration", {}).get("requestId") == row["id"] and project["revision"] != payload["revision"]:
                 # A previous release may have allowed edits while this job was
@@ -175,6 +183,7 @@ class IntegrationWorker:
                 db.execute("UPDATE projects SET revision=?,data=?,updated_at=? WHERE id=? AND owner_id=?",
                     (project["revision"], json.dumps(project), project["updatedAt"], project["id"], row["owner_id"]))
                 db.execute("UPDATE integration_jobs SET status='stale',payload='{}' WHERE id=?", (row["id"],))
+                self.trace_outcome(db, row, payload, status="stale", reason="STALE_RESULT")
                 return
             if project and project.get("integration", {}).get("requestId") == row["id"]:
                 is_v2 = payload.get("schemaVersion") == 2
@@ -216,13 +225,43 @@ class IntegrationWorker:
                 db.execute("UPDATE projects SET revision=?,data=?,updated_at=? WHERE id=? AND owner_id=?",
                     (project["revision"], json.dumps(project), project["updatedAt"], project["id"], row["owner_id"]))
             db.execute("UPDATE integration_jobs SET status=?,payload='{}' WHERE id=?", (status, row["id"]))
+            self.trace_outcome(db, row, payload, result, status, reason)
+
+    def trace_outcome(self, db, row, payload, result=None, status="succeeded", reason=None):
+        """Terminal transitions only; never copy transport explanations."""
+        build = payload.get("action") in ("generate_preview", "poll_preview")
+        summary = (result or {}).get("pipeline", {}).get("build")
+        job_id = summary.get("jobId") if isinstance(summary, dict) else None
+        if not job_id:
+            context = payload.get("context")
+            saved_job = context.get("buildJob") if isinstance(context, dict) else None
+            job_id = saved_job.get("jobId") if isinstance(saved_job, dict) else None
+        if not isinstance(job_id, str) or not diagnostics.JOB.fullmatch(job_id):
+            job_id = None
+        fields = {"owner_id": row["owner_id"], "project_id": row["project_id"],
+                  "request_id": row["id"], "job_id": job_id, "revision": payload["revision"]}
+        if result is None:
+            diagnostics.emit(db, "generation.failed" if build else "pipeline.failed", **fields,
+                status=status, reason=reason or ("BUILD_UNCONFIRMED" if status == "unknown" and build else "INVALID_RESPONSE"))
+        elif result.get("pipeline", {}).get("state") == "BLOCKED":
+            diagnostics.emit(db, "generation.failed" if build else "pipeline.failed", **fields,
+                             status="failed", reason="PIPELINE_BLOCKED")
+        elif build:
+            needs_review = result.get("pipeline", {}).get("state") == "REVIEW_REQUIRED"
+            diagnostics.emit(db, "generation.completed", **fields,
+                             status="review_required" if needs_review else "completed")
 
     def recover(self):
         with self.store.connection() as db:
             rows = db.execute("SELECT * FROM integration_jobs WHERE status='running'").fetchall()
         for row in rows:
-            if not self.retry_poll(row):
-                self.finish(row, status="unknown")
+            resumed = self.retry_poll(row)
+            if not resumed:
+                self.finish(row, status="unknown", reason="RESTART_RECOVERY")
+            with self.store.connection() as db:
+                diagnostics.emit(db, "pipeline.recovered", owner_id=row["owner_id"],
+                    project_id=row["project_id"], request_id=row["id"],
+                    status="building" if resumed else "unknown", reason="RESTART_RECOVERY")
 
     def retry_poll(self, row):
         body = json.loads(row["payload"])
@@ -241,15 +280,20 @@ class IntegrationWorker:
             if not row:
                 return False
             db.execute("UPDATE integration_jobs SET status='running' WHERE id=? AND status=?", (row["id"], row["status"]))
+            body = json.loads(row["payload"])
+            if body.get("action") == "generate_preview":
+                diagnostics.emit(db, "generation.started", owner_id=row["owner_id"],
+                    project_id=row["project_id"], request_id=row["id"],
+                    revision=body["revision"], status="running")
         try:
             self.finish(row, self.transport(json.loads(row["payload"])))
-        except (TimeoutError, OSError, urllib.error.URLError):
+        except (TimeoutError, OSError, urllib.error.URLError) as error:
             if not self.retry_poll(row):
-                self.finish(row, status="unknown")
+                self.finish(row, status="unknown", reason="TIMEOUT" if isinstance(error, TimeoutError) else "TRANSPORT_ERROR")
         except Exception:
             body = json.loads(row["payload"])
             uncertain_build = body.get("schemaVersion") == 2 and body.get("action") == "generate_preview"
-            self.finish(row, status="unknown" if uncertain_build else "failed")
+            self.finish(row, status="unknown" if uncertain_build else "failed", reason="INVALID_RESPONSE")
         return True
 
     def run(self):

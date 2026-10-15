@@ -151,7 +151,11 @@ def validate_result(body, result):
     public, private = result["pipeline"], result["private"]
     if not isinstance(public, dict) or not isinstance(private, dict) or public.get("state") not in ("CONTINUE", "READY", "BLOCKED", "BUILDING", "REVIEW_REQUIRED", "STOPPED"):
         raise ValueError("Invalid pipeline state")
-    if set(public) - {"state", "questions", "missingFields", "reasonCodes", "sources", "build", "facts"}:
+    allowed_states = {"message": ("CONTINUE", "READY", "BLOCKED", "STOPPED"),
+        "generate_preview": ("BUILDING", "BLOCKED"), "poll_preview": ("BUILDING", "REVIEW_REQUIRED", "BLOCKED")}
+    if public["state"] not in allowed_states.get(body["action"], ()):
+        raise ValueError("State does not match the requested action")
+    if set(public) - {"state", "questions", "missingFields", "reasonCodes", "sources", "build", "facts", "classification", "sourceScan"}:
         raise ValueError("Unexpected public pipeline fields")
     for field in ("questions", "missingFields", "reasonCodes"):
         values = public.get(field, [])
@@ -162,8 +166,24 @@ def validate_result(body, result):
         if not isinstance(facts, list) or len(facts) > 6:
             raise ValueError("Invalid brief facts")
         for fact in facts:
-            if not isinstance(fact, dict) or set(fact) != {"field", "value", "quote", "source"} or any(not isinstance(v, str) or len(v) > 4000 for v in fact.values()):
+            if not isinstance(fact, dict) or set(fact) != {"field", "value", "quote", "source"} or any(not isinstance(v, str) or len(v) > 20000 for v in fact.values()):
                 raise ValueError("Invalid brief fact")
+    classification = public.get("classification")
+    if classification is not None:
+        if not isinstance(classification, dict) or set(classification) != {"kind", "messageId", "confidence", "probability", "reason"} or classification["kind"] not in ("general", "content_edit", "design_refresh", "add_page", "advanced", "clarification") or classification["messageId"] != body.get("latestMessageId"):
+            raise ValueError("Invalid classification binding")
+        if classification["reason"] not in ("CLASSIFICATION_VERIFIED", "CLASSIFICATION_UNCERTAIN", "MULTIPLE_REQUESTS") or any(type(classification[k]) not in (int, float) or not 0 <= classification[k] <= 1 for k in ("confidence", "probability")):
+            raise ValueError("Invalid classification evidence")
+        if classification["kind"] != "clarification" and (classification["confidence"] < .8 or classification["probability"] < .9):
+            raise ValueError("Uncertain classification cannot create a request")
+    scan = public.get("sourceScan")
+    if scan is not None:
+        if not isinstance(scan, dict) or set(scan) != {"policy", "status", "findingCount", "reasonCodes"} or scan["policy"] != "drive-source-admission-v1" or scan["status"] not in ("REVIEW_REQUIRED", "NO_BLOCKING_PATTERN_DETECTED") or type(scan["findingCount"]) is not int or not 0 <= scan["findingCount"] <= 100000:
+            raise ValueError("Invalid source scan receipt")
+        if not isinstance(scan["reasonCodes"], list) or len(scan["reasonCodes"]) > 64 or any(not isinstance(x, str) or not re.fullmatch(r"SOURCE_[A-Z_]{2,70}", x) for x in scan["reasonCodes"]):
+            raise ValueError("Invalid source scan codes")
+        if scan["status"] == "REVIEW_REQUIRED" and public["state"] != "BLOCKED":
+            raise ValueError("A blocked source cannot reach the provider")
     if "sources" in public:
         source = public["sources"]
         if not isinstance(source, dict) or set(source) != {"status", "files", "pages", "characters"} or source["status"] not in ("READ", "REVIEW_REQUIRED"):
@@ -183,6 +203,14 @@ def validate_result(body, result):
             raise ValueError("Unrequested build")
     if public["state"] == "READY" and (not isinstance(private.get("prompt"), str) or not private["prompt"] or not isinstance(private.get("analysis"), dict)):
         raise ValueError("READY without evidence")
+    if public["state"] in ("BUILDING", "REVIEW_REQUIRED"):
+        job = private.get("buildJob", {})
+        if not isinstance(job, dict) or not JOB.fullmatch(job.get("jobId", "")) or not HEX.fullmatch(job.get("revision", "")) or not build or build["jobId"] != job["jobId"]:
+            raise ValueError("Build state without an exact receipt")
+    if public["state"] == "REVIEW_REQUIRED":
+        proof = validate_proof(body["projectId"], private)
+        if proof["job_id"] != job["jobId"] or proof["revision"] != job["revision"]:
+            raise ValueError("Review proof differs from the submitted job")
     return result
 
 
@@ -195,9 +223,41 @@ def apply_result(db, project, body, result):
         public["sources"] = {**old["sources"], **public.get("sources", {})}
     project["pipeline"] = public
     save_context(db, project["id"], result["private"])
+    classification = public.get("classification")
+    if classification:
+        import diagnostics
+        owner = db.execute("SELECT owner_id FROM projects WHERE id=?", (project["id"],)).fetchone()[0]
+        diagnostics.emit(db, "classification.decided", owner_id=owner, project_id=project["id"], request_id=body["requestId"], revision=body["revision"], status=public["state"], category=classification["kind"])
+        record_classified_request(project, classification)
+    if public.get("sourceScan"):
+        import diagnostics
+        owner = db.execute("SELECT owner_id FROM projects WHERE id=?", (project["id"],)).fetchone()[0]
+        rejected = public["sourceScan"]["status"] == "REVIEW_REQUIRED"
+        diagnostics.emit(db, "source.scan", owner_id=owner, project_id=project["id"], request_id=body["requestId"], revision=body["revision"], status="rejected" if rejected else "clean", reason="SOURCE_REJECTED" if rejected else None)
     if public["state"] == "REVIEW_REQUIRED":
         # No delivery URL is exposed until an operator approves this exact proof.
         result["reply"] = "La maquette a été construite et revue. Elle attend maintenant la validation humaine avant sa livraison dans votre espace."
+
+
+def record_classified_request(project, classification):
+    from domain import CATALOG
+    category = {"content_edit": "small_edit", "design_refresh": "redesign", "add_page": "extra_page", "advanced": "advanced"}.get(classification["kind"])
+    if not category or project["pipeline"]["state"] in ("BLOCKED", "STOPPED"):
+        return
+    source = next((m for m in project["messages"] if m["id"] == classification["messageId"] and m["role"] == "user"), None)
+    current = next((m for m in project["messages"] if m["id"] == project["integration"]["messageId"]), {})
+    if not source or current.get("requestId") or any(r.get("sourceMessageId") == source["id"] for r in project["requests"]):
+        return
+    if sum(r["status"] != "cancelled" for r in project["requests"]) >= 20:
+        return  # Existing requests stay intact; no hidden acceptance or work.
+    title, cents = CATALOG[category]
+    request_id = uid()
+    project["requests"].insert(0, {"id": request_id, "category": category, "title": title,
+        "description": source["text"], "assetUrl": "", "status": "quoted" if cents is not None else "needs_scope_review",
+        "cents": cents, "at": now(), "quoteVersion": 1, "sourceMessageId": source["id"]})
+    project["messages"].append({"id": uid(), "projectId": project["id"], "role": "assistant", "at": now(),
+        "kind": "request", "requestId": request_id, "text": "Votre demande a été classée et un brouillon de devis ou de périmètre est disponible ici. Aucun accord, paiement ou travail n’est déclenché par cette classification."})
+    project["messages"] = project["messages"][-100:]
 
 
 def validate_proof(project_id, private):

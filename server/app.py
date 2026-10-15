@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 from domain import PortalError, create_project, exact, text, transition, uid
 from integration import IntegrationWorker, N8nTransport, PENDING, enqueue, initialize
+import diagnostics
 import pipeline
 import support
 
@@ -44,6 +45,7 @@ class Store:
         self.filename = str(filename)
         with self.connection() as db:
             db.executescript(SCHEMA)
+            diagnostics.initialize(db)
         self.integration = None
         self.support = None
         initialize(self)
@@ -69,6 +71,20 @@ class Store:
             return dict(row) if row else None
 
     def auth(self, raw, register, source):
+        try:
+            return self._auth(raw, register, source)
+        except PortalError as error:
+            # _auth's context managers have already rolled back. A rejected
+            # login must remain visible without retaining its raw inputs.
+            reason = {401: "INVALID_CREDENTIALS", 409: "USERNAME_TAKEN",
+                      429: "RATE_LIMIT"}.get(error.status, "INVALID_INPUT")
+            with self.connection() as db:
+                diagnostics.emit(db, "auth.register" if register else "auth.login",
+                    status="rate_limited" if error.status == 429 else "denied",
+                    reason=reason, http_status=error.status)
+            raise
+
+    def _auth(self, raw, register, source):
         exact(raw, ("username", "password", "displayName") if register else ("username", "password"))
         username = text(raw["username"], 3, 40).lower()
         password = raw["password"]
@@ -101,6 +117,8 @@ class Store:
             token = secrets.token_urlsafe(32)
             db.execute("DELETE FROM sessions WHERE expires<=?", (current,))
             db.execute("INSERT INTO sessions VALUES (?,?,?)", (hashlib.sha256(token.encode()).hexdigest(), account["id"], current + LIFETIME))
+            diagnostics.emit(db, "auth.register" if register else "auth.login",
+                             owner_id=account["id"], status="succeeded", http_status=200)
         return token, {"displayName": account["display_name"]}
 
     def list_projects(self, owner):
@@ -114,6 +132,8 @@ class Store:
             if db.execute("SELECT count(*) FROM projects WHERE owner_id=?", (owner,)).fetchone()[0] >= 50:
                 raise PortalError("This preview supports up to 50 projects per account.", 409)
             db.execute("INSERT INTO projects VALUES (?,?,?,?,?)", (project["id"], owner, project["revision"], json.dumps(project), project["updatedAt"]))
+            diagnostics.emit(db, "project.created", owner_id=owner, project_id=project["id"],
+                             revision=project["revision"], status="succeeded", http_status=201)
         return project
 
     def update(self, owner, project_id, raw):
@@ -148,6 +168,16 @@ class Store:
             result = db.execute("UPDATE projects SET revision=?,data=?,updated_at=? WHERE id=? AND owner_id=? AND revision=?", (project["revision"], json.dumps(project), project["updatedAt"], project_id, owner, raw["revision"]))
             if result.rowcount != 1:
                 raise PortalError("Project changed in another tab. Your workspace has refreshed; review and try again.", 409)
+            request_id = project.get("integration", {}).get("requestId")
+            if request_id == previous.get("integration", {}).get("requestId"):
+                request_id = None
+            if action["type"] in ("message", "preview_feedback"):
+                diagnostics.emit(db, "message.accepted", owner_id=owner, project_id=project_id,
+                    request_id=request_id, revision=project["revision"], status="accepted")
+            sources = project.get("pipeline", {}).get("sources", {})
+            if action["type"] == "set_sources" or sources.get("messageId") != previous.get("pipeline", {}).get("sources", {}).get("messageId"):
+                diagnostics.emit(db, "source.requested", owner_id=owner, project_id=project_id,
+                    request_id=request_id, revision=project["revision"], status="accepted")
         return project
 
 
@@ -215,7 +245,7 @@ class Handler(BaseHTTPRequestHandler):
         length = self.headers.get("Content-Length", "")
         if not length.isdigit():
             raise PortalError("Content length required.", 411)
-        if int(length) > 32768:
+        if int(length) > 262144:
             raise PortalError("Request too large.", 413)
         try:
             data = json.loads(self.rfile.read(int(length)))
@@ -307,6 +337,7 @@ class Handler(BaseHTTPRequestHandler):
                 exact(raw, ())
                 with self.server.store.connection() as db:
                     db.execute("DELETE FROM sessions WHERE token_hash=?", (hashlib.sha256(self.session_token().encode()).hexdigest(),))
+                    diagnostics.emit(db, "auth.logout", owner_id=user["id"], status="succeeded", http_status=200)
                 return self.send_json({"ok": True}, cookie=self.cookie("", 0))
             if self.command == "POST" and path == "/api/projects":
                 return self.send_json({"project": self.server.store.create(user["id"], raw)}, 201)

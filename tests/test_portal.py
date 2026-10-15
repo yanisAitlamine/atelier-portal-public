@@ -293,7 +293,8 @@ class ApiTests(unittest.TestCase):
 
     def test_origin_size_and_input_validation(self):
         self.assertEqual(self.call("/api/projects", "POST", {"sample": True}, self.alice, origin="https://hostile.example")[0], 403)
-        self.assertEqual(self.call("/api/projects", "POST", {"brief": {**SAMPLE, "description": "x" * 40000}}, self.alice)[0], 413)
+        self.assertEqual(self.call("/api/projects", "POST", {"brief": {**SAMPLE, "description": "x" * 270000}}, self.alice)[0], 413)
+        self.assertEqual(self.call("/api/projects", "POST", {"brief": {**SAMPLE, "description": "x" * 20001}}, self.alice)[0], 400)
         self.assertEqual(self.call("/api/projects", "POST", {"brief": SAMPLE, "subscription": "paid"}, self.alice)[0], 400)
 
     def test_concurrent_cas_allows_exactly_one_update(self):

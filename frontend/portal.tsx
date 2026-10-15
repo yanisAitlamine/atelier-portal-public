@@ -37,6 +37,7 @@ import {
   X,
 } from "lucide-react";
 import type { Brief, Project } from "../lib/contracts";
+import { MAX_MESSAGE_CHARS } from "../lib/limits";
 import { formatMoney } from "../lib/format";
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 function Concept({
@@ -225,41 +226,8 @@ function SupportForm({ project, refresh }: { project: Project; refresh: () => Pr
     </div>}
   </>;
 }
-type Category = "small_edit" | "extra_page" | "redesign" | "advanced";
 type Route = { view: View; projectId?: string };
-type Draft = { text: string; category: Category | "" };
-const services: { value: Category | ""; label: string; detail: string }[] = [
-  {
-    value: "",
-    label: "Let’s talk",
-    detail:
-      "Ask questions and shape your idea before deciding. No payment required to chat.",
-  },
-  {
-    value: "extra_page",
-    label: "Add a page · €99",
-    detail:
-      "Describe one standard page. A draft quote will appear in this conversation for you to review.",
-  },
-  {
-    value: "small_edit",
-    label: "Content edit",
-    detail:
-      "Describe the content change. Eligibility and scope need review; your care plan has not started.",
-  },
-  {
-    value: "redesign",
-    label: "Design refresh",
-    detail:
-      "From €149, subject to a final scope review and custom quote. Nothing starts automatically.",
-  },
-  {
-    value: "advanced",
-    label: "Advanced feature",
-    detail:
-      "Describe the outcome. Advanced work requires a separate scope review and quote.",
-  },
-];
+type Draft = { text: string };
 const labels: Record<string, string> = {
   brief_ready: "In preparation",
   awaiting_payment: "Payment pending",
@@ -323,7 +291,7 @@ export default function Portal({ displayName }: { displayName: string }) {
   const previewKey = p?.preview ? `${p.id}:${p.preview.version}:${p.preview.sha256 || "template"}` : "";
   const confirmApproval = Boolean(previewKey) && approvedPreviewKey === previewKey;
   const previewFailure = p?.integration?.kind === "generate_preview" && ["failed", "unknown", "stale"].includes(p.integration.status);
-  const draft = drafts[route.projectId || ""] || { text: "", category: "" };
+  const draft = drafts[route.projectId || ""] || { text: "" };
   useEffect(() => {
     void refresh();
     void fetch(`${BASE}/api/health`).then(r => r.json()).then(h => setConnected(h.mode === "n8n_test_frontend")).catch(() => {});
@@ -447,7 +415,7 @@ export default function Portal({ displayName }: { displayName: string }) {
     if (p)
       setDrafts((prev) => ({
         ...prev,
-        [p.id]: { ...(prev[p.id] || { text: "", category: "" }), ...change },
+        [p.id]: { ...(prev[p.id] || { text: "" }), ...change },
       }));
   }
   async function sendMessage(e: FormEvent) {
@@ -457,10 +425,9 @@ export default function Portal({ displayName }: { displayName: string }) {
     const action = {
       type: "message",
       text: draft.text,
-      ...(draft.category ? { serviceCategory: draft.category } : {}),
     };
     if (await act(action))
-      setDrafts((prev) => ({ ...prev, [siteId]: { text: "", category: "" } }));
+      setDrafts((prev) => ({ ...prev, [siteId]: { text: "" } }));
   }
   function open(m: Modal) {
     setError("");
@@ -967,7 +934,7 @@ export default function Portal({ displayName }: { displayName: string }) {
                       </div>
                     </div>
                     {pipelineConfig.available && <section id="project-source-review" className="card source-panel" aria-label="Documents et suivi du projet">
-                      <h2>Documents et images du projet</h2>
+                      <h2>Connecter un dossier Drive au contexte</h2>
                       <p>Partagez votre dossier Google Drive en privé avec <strong>{pipelineConfig.driveAccount || "le compte de lecture communiqué par le support"}</strong>, avec le rôle Lecteur. Ajoutez votre cahier des charges, vos images et les données de vos produits. Les fichiers sont lus comme des sources du brief.</p>
                       <p>Vous pouvez aussi fournir le lien directement dans votre message : son envoi autorise la lecture de ce dossier pour ce site. Les liens cités ou transférés ne sont pas importés automatiquement.</p>
                       <p>Le lecteur accepte PDF texte, Google Docs, TXT et CSV. Les PNG peuvent être utilisés dans la maquette. Les autres images et les formats non pris en charge demandent une vérification ; un document incomplet bloque la construction.</p>
@@ -990,6 +957,10 @@ export default function Portal({ displayName }: { displayName: string }) {
                         <p>{p.pipeline.sources.status === "READ" ? "Sources lues" : p.pipeline.sources.status === "queued" ? "Lecture en cours" : "Lecture à vérifier"} · {p.pipeline.sources.pages || 0} pages ou sections</p>
                         <ul>{p.pipeline.sources.files.map((file, index) => <li key={index}>{file.name} · version {file.version}</li>)}</ul>
                       </div>}
+                      {p.pipeline?.sourceScan && <p role="status">{p.pipeline.sourceScan.status === "REVIEW_REQUIRED"
+                        ? "Contrôle des fichiers : une vérification humaine est nécessaire. Ces sources ne sont pas envoyées à l’agent."
+                        : "Contrôle des fichiers : aucun motif bloquant détecté. Les documents restent des données à vérifier, sans pouvoir donner d’instructions à l’agent."}</p>}
+                      {p.pipeline?.classification && <p>Demande comprise : {({ general: "discussion du projet", content_edit: "modification de contenu", design_refresh: "évolution du design", add_page: "ajout de page", advanced: "fonctionnalité à étudier", clarification: "précision nécessaire" } as Record<string,string>)[p.pipeline.classification.kind]}.</p>}
                       <div className="pipeline-progress" role="status">
                         {p.pipeline?.state === "READY" ? "Brief complet et cohérent — vous pouvez demander une maquette de test."
                           : p.pipeline?.state === "BUILDING" ? "Construction et revue de la maquette en cours."
@@ -1115,31 +1086,6 @@ export default function Portal({ displayName }: { displayName: string }) {
                           className="chat-form unified-composer"
                           onSubmit={sendMessage}
                         >
-                          <div
-                            className="chat-service-options"
-                            role="group"
-                            aria-label="Conversation topic"
-                          >
-                            {services.map((service) => (
-                              <button
-                                type="button"
-                                key={service.value}
-                                aria-pressed={draft.category === service.value}
-                                className={
-                                  draft.category === service.value
-                                    ? "selected"
-                                    : ""
-                                }
-                                onClick={() => {
-                                  changeDraft({ category: service.value });
-                                  composer.current?.focus();
-                                }}
-                                disabled={busy}
-                              >
-                                {service.label}
-                              </button>
-                            ))}
-                          </div>
                           <label className="sr-only" htmlFor="chat">
                             Message for {p.name}
                           </label>
@@ -1152,21 +1098,17 @@ export default function Portal({ displayName }: { displayName: string }) {
                             }
                             placeholder={`What would you like to do with ${p.name}?`}
                             minLength={3}
-                            maxLength={3000}
+                            maxLength={MAX_MESSAGE_CHARS}
                             disabled={busy}
                             required
-                            rows={3}
+                            rows={6}
                           />
                           <p className="composer-context">
-                            {
-                              services.find(
-                                (service) => service.value === draft.category,
-                              )?.detail
-                            }
+                            Décrivez librement votre besoin. L’assistant distingue contenu, design, nouvelle page ou fonctionnalité et demande une précision si nécessaire. Aucun devis n’est accepté automatiquement.
                           </p>
                           <div className="composer-send">
                             <span>
-                              For {p.name} · no work starts from a message
+                              {draft.text.length.toLocaleString("fr-FR")} / 20 000 caractères · {p.name}
                             </span>
                             <button
                               className="send-btn"
@@ -1539,7 +1481,7 @@ export default function Portal({ displayName }: { displayName: string }) {
                         }
                         placeholder="What makes your business special? What should your website help you achieve?"
                         minLength={20}
-                        maxLength={4000}
+                        maxLength={MAX_MESSAGE_CHARS}
                         required
                       />
                     </label>
@@ -1753,7 +1695,7 @@ export default function Portal({ displayName }: { displayName: string }) {
                         onChange={(e) => setFeedback(e.target.value)}
                         placeholder="Share your feedback on this version…"
                         minLength={3}
-                        maxLength={3000}
+                        maxLength={MAX_MESSAGE_CHARS}
                         required
                       />
                     </label>
