@@ -1,0 +1,38 @@
+{
+  "status": "example_only_inactive",
+  "entryOwner": "EXAMPLE_OPERATOR_PROJECT",
+  "workflows": {
+    "reader": {
+      "id": "EXAMPLE_WORKFLOW_006",
+      "name": "PORTAIL â€” Sources Drive privÃ©es",
+      "versionId": "00000000-0000-4000-8000-000000000006",
+      "active": false,
+      "availableInMCP": false,
+      "nodeCount": 12
+    },
+    "assets": {
+      "id": "EXAMPLE_WORKFLOW_007",
+      "name": "PORTAIL â€” Images privÃ©es et manifeste vÃ©rifiÃ©",
+      "versionId": "00000000-0000-4000-8000-00000000000c",
+      "active": false,
+      "availableInMCP": false,
+      "nodeCount": 12
+    },
+    "decision": {
+      "id": "EXAMPLE_WORKFLOW_009",
+      "name": "PORTAIL â€” DÃ©cision Jev et citations du brief",
+      "versionId": "00000000-0000-4000-8000-000000000003",
+      "active": false,
+      "availableInMCP": false,
+      "nodeCount": 13
+    },
+    "entry": {
+      "id": "EXAMPLE_WORKFLOW_003",
+      "name": "PORTAIL â€” Dialogue, Drive et maquette revue",
+      "versionId": "00000000-0000-4000-8000-000000000026",
+      "active": false,
+      "availableInMCP": false,
+      "nodeCount": 22
+    }
+  }
+}

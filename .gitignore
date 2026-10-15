@@ -1,0 +1,15 @@
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.data/
+.env*
+*.sqlite*
+*.db
+*.log
+.venv/
+.sites-runtime/
+*.tsbuildinfo
+
+.generated/
+.sanitization-private-map*

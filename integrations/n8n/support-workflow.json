@@ -1,0 +1,163 @@
+{
+  "name": "Atelier — Support Frontend : conversation et maquette",
+  "nodes": [
+    {
+      "id": "d70933c2-59c4-4a68-b8b2-4473fefa8261",
+      "name": "Recevoir la demande support",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "atelier-support-v1",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "webhookId": "c373600d-24e3-4851-b2dd-0373e3916a27"
+    },
+    {
+      "id": "7389d1e0-1e57-458f-b004-d150701db0ef",
+      "name": "Preparer le dossier support",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const items = $input.all();\nif (items.length !== 1) throw new Error('One support request required');\nconst p = items[0].json.body;\nconst keys = ['schemaVersion','ticketId','projectId','revision','replyTo','recipient','subject','message','attachments'];\nif (!p || Object.keys(p).sort().join() !== keys.sort().join() || p.schemaVersion !== 1) throw new Error('Invalid support schema');\nconst uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;\nconst email = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;\nif (typeof p.ticketId !== 'string' || typeof p.projectId !== 'string' || !uuid.test(p.ticketId) || !uuid.test(p.projectId) || !Number.isInteger(p.revision) || p.revision < 1) throw new Error('Invalid support identity');\nfor (const address of [p.replyTo,p.recipient]) if (typeof address !== 'string' || address.length > 254 || !email.test(address) || address.endsWith('.invalid')) throw new Error('Invalid email');\nif (p.subject !== '[Atelier support] ' + p.ticketId || typeof p.message !== 'string' || p.message.length < 10 || p.message.length > 15000) throw new Error('Invalid support message');\nif (!Array.isArray(p.attachments) || p.attachments.length < 1 || p.attachments.length > 2) throw new Error('Invalid attachments');\nconst binary = {};\nfor (let i = 0; i < p.attachments.length; i++) {\n  const a = p.attachments[i];\n  const name = i === 0 ? 'conversation.txt' : 'maquette.html';\n  const mime = i === 0 ? 'text/plain' : 'text/html';\n  if (!a || Object.keys(a).sort().join() !== 'data,mime,name' || a.name !== name || a.mime !== mime || typeof a.data !== 'string' || a.data.length > 6000000 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(a.data) || a.data.length === 0) throw new Error('Invalid attachment');\n  binary['file' + i] = { data: a.data, mimeType: a.mime, fileName: a.name };\n}\nreturn [{json: {ticketId:p.ticketId,recipient:p.recipient,replyTo:p.replyTo,subject:p.subject,message:p.message},binary}];"
+      }
+    },
+    {
+      "id": "7c4f5509-706f-48c2-ad4b-95fc7e868453",
+      "name": "Envoyer au support",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        448,
+        0
+      ],
+      "parameters": {
+        "resource": "message",
+        "operation": "send",
+        "sendTo": "={{ $json.recipient }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "text",
+        "message": "={{ $json.message }}",
+        "options": {
+          "appendAttribution": false,
+          "replyTo": "={{ $json.replyTo }}",
+          "attachmentsUi": {
+            "attachmentsBinary": [
+              {
+                "property": "={{ Object.keys($binary).join(',') }}"
+              }
+            ]
+          }
+        }
+      },
+      "webhookId": "33c4909f-6df8-4f9b-99b2-56fbef81b28e",
+      "onError": "stopWorkflow",
+      "retryOnFail": false
+    },
+    {
+      "id": "e831c175-0bda-4736-9a38-0a550208365a",
+      "name": "Verifier le recu Gmail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const result = $input.first().json;\nif (typeof result.id !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(result.id) || !Array.isArray(result.labelIds) || !result.labelIds.includes('SENT')) throw new Error('Mail send not confirmed');\nreturn [{json:{schemaVersion:1,ticketId:$('Preparer le dossier support').first().json.ticketId,status:'sent',messageId:result.id}}];"
+      }
+    },
+    {
+      "id": "d7d20a0a-a171-4f69-a7af-c7c71cd7c883",
+      "name": "Confirmer au portail",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        896,
+        0
+      ],
+      "parameters": {
+        "respondWith": "firstIncomingItem",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Recevoir la demande support": {
+      "main": [
+        [
+          {
+            "node": "Preparer le dossier support",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparer le dossier support": {
+      "main": [
+        [
+          {
+            "node": "Envoyer au support",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Envoyer au support": {
+      "main": [
+        [
+          {
+            "node": "Verifier le recu Gmail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verifier le recu Gmail": {
+      "main": [
+        [
+          {
+            "node": "Confirmer au portail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "executionTimeout": 90,
+    "callerPolicy": "none"
+  },
+  "active": false
+}
