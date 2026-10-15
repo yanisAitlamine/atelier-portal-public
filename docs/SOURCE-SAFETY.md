@@ -32,3 +32,28 @@ node --test integrations/n8n/source-scan.test.cjs
 
 Ces tests locaux ne démontrent pas que la version du service réellement installée
 exécute ce contrôle. Vérifier la release et le graphe dans l'exploitation privée.
+
+## Frontières entre contextes JavaScript
+
+L'admission accepte des données JSON ordinaires venant d'un autre contexte VM.
+En mode `STRICT_JSON_RECORDS`, les prototypes doivent correspondre aux
+constructeurs natifs attendus ; classes et prototypes personnalisés sont refusés.
+Dans le runner n8n pris en charge, les API de prototype sont explicitement
+anonymisées. Le mode `SANDBOX_OWN_DATA_COPY` reconnaît ce comportement précis et
+copie seulement les descripteurs propres de données vers des records sans
+prototype et des tableaux neufs. Il ne récupère pas les prototypes cachés.
+
+Une introspection autrement remplacée est refusée. Dans les deux modes, les
+capacités propres dangereuses, accesseurs, symboles, cycles, hooks de
+sérialisation et tableaux enrichis sont refusés. Aucun getter ou hook de la
+source ne doit être appelé. Les propriétés héritées sont éliminées par la copie
+sandbox ; leur identité n'est pas certifiée. Une instance ne contenant que des
+données inertes peut être projetée dans ce mode : ce n'est pas une preuve de
+refus de toutes les classes ni un bac à sable pour du JavaScript arbitraire ou
+un Proxy exécutant des traps.
+
+Le consommateur doit utiliser le clone retourné, détaché de la source, et refaire
+l'admission avant le contexte fournisseur. Un reçu ancien ne dispense jamais
+d'un nouveau contrôle. Chaînes, guillemets, Unicode et retours de ligne restent
+exacts. JPEG/WebP nécessitant une revue doivent produire un état `BLOCKED` lié au
+projet, sans passage à Jev ni erreur générique dissimulant ce motif.

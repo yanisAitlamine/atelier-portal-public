@@ -5,37 +5,37 @@
     "reader": {
       "id": "EXAMPLE_WORKFLOW_006",
       "name": "PORTAIL — Sources Drive privées",
-      "versionId": "00000000-0000-4000-8000-000000000005",
-      "active": false,
+      "versionId": "00000000-0000-4000-8000-000000000007",
       "availableInMCP": false,
       "nodeCount": 12,
+      "active": false,
       "activeVersionId": null
     },
     "assets": {
       "id": "EXAMPLE_WORKFLOW_007",
       "name": "PORTAIL — Images privées et manifeste vérifié",
-      "versionId": "00000000-0000-4000-8000-00000000000b",
-      "active": false,
+      "versionId": "00000000-0000-4000-8000-00000000000d",
       "availableInMCP": false,
       "nodeCount": 12,
+      "active": false,
       "activeVersionId": null
     },
     "decision": {
       "id": "EXAMPLE_WORKFLOW_009",
       "name": "PORTAIL — Décision Jev et citations du brief",
-      "versionId": "00000000-0000-4000-8000-000000000019",
-      "active": false,
+      "versionId": "00000000-0000-4000-8000-00000000001b",
       "availableInMCP": false,
       "nodeCount": 13,
+      "active": false,
       "activeVersionId": null
     },
     "entry": {
       "id": "EXAMPLE_WORKFLOW_003",
       "name": "PORTAIL — Dialogue, Drive et maquette revue",
-      "versionId": "00000000-0000-4000-8000-000000000015",
-      "active": false,
+      "versionId": "00000000-0000-4000-8000-000000000017",
       "availableInMCP": false,
       "nodeCount": 25,
+      "active": false,
       "activeVersionId": null
     }
   }

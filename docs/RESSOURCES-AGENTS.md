@@ -87,3 +87,13 @@ construction, variation de prix ou publication. Les vérifications Jev, de
 propriété, de révision, de consentement et de preuve restent séparées. Les tests
 fictifs du module et la génération SDK couvrent le contrat ; ils ne prouvent
 aucun appel réel du fournisseur ni installation du workflow corrigé.
+
+## Régressions de représentation et images à revoir
+
+Les sources admises sont copiées avant leur réutilisation : `W.context` ne doit
+ni conserver de référence au lecteur original, ni croire un ancien reçu de scan.
+Lire les deux modes d'admission et leurs limites dans [SOURCE-SAFETY.md](SOURCE-SAFETY.md).
+Les tests `node:vm` couvrent les données bénignes/hostiles, les clones exacts et
+les variantes du runner. La branche d'images JPEG/WebP nécessitant une revue doit
+rester liée au projet et bloquer Jev. Le [guide de vérification](E2E.md) distingue
+ces contrôles, les relevés antérieurs et l'état réel d'une installation.

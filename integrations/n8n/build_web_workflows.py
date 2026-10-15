@@ -102,7 +102,8 @@ def build(reference, output, child_ids=None):
     quarantine = code("Bloquer les instructions suspectes", "return [{json:W.sourceBlocked($('Vérifier le contexte web').first().json,$json.reader,$json.scan)}];")
     join = code("Rattacher les documents et images", "const x=$input.first();return [{json:{parent:{document_sources:x.json.reader,source_scan:x.json.scan},binding:x.json.reader.binding},binary:x.binary}];")
     image_call = sub("Vérifier et déposer les images du projet", "assets")
-    context_node = code("Préparer la décision du projet", "const p=$('Vérifier le contexte web').first().json;const reader=$json.parent?.document_sources;const bundle=$json.parent?.asset_bundle;return [{json:{context:W.context(p,reader),binding:{channel:'web',project_id:'web_'+p.projectId},...(reader?{reader}:{}),...(bundle?{bundle}:{})}}];")
+    context_node = code("Préparer la décision du projet", "return [{json:W.decisionInput($('Vérifier le contexte web').first().json,$json)}];")
+    context_gate = switch("Sources après images acceptées ?", "={{ $json.result ? 1 : 0 }}", 2)
     jev_call = sub("Décider avec les sources du brief", "decision")
     guidance = code("Préparer la réponse au client", "const p=$('Vérifier le contexte web').first().json;const source=$('Préparer la décision du projet').first().json;const out=W.analysisResult(p,$json,source.reader,source.bundle);return [{json:{result:out,brief:p.brief,history:p.history.slice(-8),pricing:p.pricing,decision:out.pipeline,facts:$json.context.facts}}];")
     reply_gate = switch("Réponse à rédiger ?", "={{ $json.result.pipeline.state === 'CONTINUE' ? 0 : 1 }}", 2)
@@ -128,16 +129,17 @@ def build(reference, output, child_ids=None):
     poll = add("Relire la preuve fraîche du travail", "n8n-nodes-base.httpRequest", params, native_poll["typeVersion"], native_poll["credentials"])
     proof = code("Vérifier réalisation, revue et référence", "return [{json:W.polled($('Vérifier le contexte web').first().json,$json)}];")
     respond = add("Rendre le résultat privé au portail", "n8n-nodes-base.respondToWebhook", {"respondWith": "json", "responseBody": "={{ $json }}", "options": {}}, 1.5)
-    for a,b in [(start,verified),(verified,route),(request,reader_call),(reader_call,scan_node),(scan_node,scan_gate),(quarantine,final_result),(join,image_call),(image_call,context_node),(context_node,jev_call),(jev_call,guidance),(guidance,reply_gate),(model["name"],rendered),(rendered,final_result),(fixed,final_result),(final_result,respond),(mission,submit),(submit,receipt),(receipt,respond),(poll,proof),(proof,respond)]:
+    for a,b in [(start,verified),(verified,route),(request,reader_call),(reader_call,scan_node),(scan_node,scan_gate),(quarantine,final_result),(join,image_call),(image_call,context_node),(context_node,context_gate),(jev_call,guidance),(guidance,reply_gate),(model["name"],rendered),(rendered,final_result),(fixed,final_result),(final_result,respond),(mission,submit),(submit,receipt),(receipt,respond),(poll,proof),(proof,respond)]:
         edge(a,b)
     edge(route,source_gate,0); edge(route,mission,1); edge(route,poll,2)
     edge(source_gate,request,0); edge(source_gate,context_node,1)
     edge(scan_gate,join,0); edge(scan_gate,quarantine,1)
+    edge(context_gate,jev_call,0); edge(context_gate,fixed,1)
     edge(reply_gate,model["name"],0); edge(reply_gate,fixed,1)
     entry = {"name": "PORTAIL — Dialogue, Drive et maquette revue", "nodes": nodes, "connections": connections,
              "nodeGroups": [
                  {"name": "Vérifier la demande", "nodeNames": [verified,route], "description": "Authentifier le contrat web et choisir analyse, génération explicitement validée ou simple suivi."},
-                 {"name": "Contrôler les sources et décider", "nodeNames": [source_gate,request,reader_call,scan_node,scan_gate,quarantine,join,image_call,context_node,jev_call,guidance,reply_gate,model["name"],rendered,fixed,final_result], "description": "Dossier autorisé et contrôle avant modèle/images ; blocage sûr ou décision Jev citée et réponse dans l’unique conversation du site."},
+                 {"name": "Contrôler les sources et décider", "nodeNames": [source_gate,request,reader_call,scan_node,scan_gate,quarantine,join,image_call,context_node,context_gate,jev_call,guidance,reply_gate,model["name"],rendered,fixed,final_result], "description": "Dossier autorisé et contrôle avant modèle/images ; blocage sûr ou décision Jev citée et réponse dans l’unique conversation du site."},
                  {"name": "Construire sur demande", "nodeNames": [mission,submit,receipt], "description": "Clic explicite, prompt sourcé, cible de test fixe et reçu durable, sans livraison automatique."},
                  {"name": "Suivre la revue", "nodeNames": [poll,proof], "description": "Lecture de l’état et vérification fraîche de la preuve ; la validation humaine reste distincte."},
              ]}

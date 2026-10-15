@@ -24,7 +24,49 @@ const RULES = Object.freeze([
 
 function fail(code) { const e=new Error(code);e.code=code;throw e; }
 function check(ok,code='SOURCE_SCAN_INVALID') { if(!ok)fail(code); }
+const functionSource=Function.prototype.toString;
+const OBJECT_SOURCE=functionSource.call(Object),ARRAY_SOURCE=functionSource.call(Array);
+function admissionMode() {
+  try {
+    const record={},array=[],noPrototype=Object.create(null);
+    const objectProto=Object.getPrototypeOf,reflectProto=Reflect.getPrototypeOf;
+    const strict=objectProto(record)===Object.prototype&&objectProto(array)===Array.prototype&&objectProto(noPrototype)===null&&
+      reflectProto(record)===Object.prototype&&reflectProto(array)===Array.prototype&&reflectProto(noPrototype)===null;
+    if(strict)return 'STRICT_JSON_RECORDS';
+    // n8n's installed secure runner intentionally replaces both APIs with
+    // () => ({}). Recognize that exact capability loss, without deriving or
+    // recovering the hidden prototype through another API.
+    const anonymized=fn=>functionSource.call(fn).replace(/\s+/g,'')==='()=>({})';
+    if(anonymized(objectProto)&&anonymized(reflectProto)) {
+      const samples=[objectProto(record),objectProto(record),objectProto(array),objectProto(noPrototype),reflectProto(record),reflectProto(record)];
+      if(new Set(samples).size===samples.length&&samples.every(x=>x!==null&&typeof x==='object'&&!Array.isArray(x)&&Reflect.ownKeys(x).length===0))return 'SANDBOX_OWN_DATA_COPY';
+    }
+  } catch { /* An unknown introspection environment must not weaken admission. */ }
+  return 'UNSUPPORTED_RUNTIME';
+}
+const ADMISSION_MODE=admissionMode();
+function nativePrototype(proto,source) {
+  if(!proto||typeof proto!=='object'||Object.getOwnPropertyDescriptor(proto,'toJSON'))return false;
+  const constructor=Object.getOwnPropertyDescriptor(proto,'constructor');
+  if(!constructor||!('value' in constructor)||typeof constructor.value!=='function')return false;
+  const ownPrototype=Object.getOwnPropertyDescriptor(constructor.value,'prototype');
+  // Native constructor/prototype correspondence works across VM realms. A
+  // custom prototype pointing at Object, class or forged constructor does not.
+  return ownPrototype&&'value' in ownPrototype&&ownPrototype.value===proto&&functionSource.call(constructor.value)===source;
+}
+function objectPrototype(proto) {
+  return proto!==null&&Object.getPrototypeOf(proto)===null&&nativePrototype(proto,OBJECT_SOURCE);
+}
+function ordinaryRecord(value) {
+  const proto=Object.getPrototypeOf(value);
+  return proto===null||objectPrototype(proto);
+}
+function ordinaryArray(value) {
+  const proto=Object.getPrototypeOf(value);
+  return nativePrototype(proto,ARRAY_SOURCE)&&objectPrototype(Object.getPrototypeOf(proto));
+}
 function jsonClone(value) {
+  check(ADMISSION_MODE!=='UNSUPPORTED_RUNTIME','SOURCE_SCAN_UNSUPPORTED_RUNTIME');
   const ancestors=new Set();let nodes=0,characters=0;
   function visit(v,depth) {
     check(++nodes<=LIMITS.jsonNodes && depth<=LIMITS.jsonDepth,'SOURCE_SCAN_LIMIT');
@@ -32,17 +74,28 @@ function jsonClone(value) {
     if(typeof v==='string') { characters+=v.length;check(characters<=LIMITS.jsonCharacters,'SOURCE_SCAN_LIMIT');return v; }
     if(typeof v==='number') { check(Number.isFinite(v));return v; }
     check(typeof v==='object'&&!ancestors.has(v));
-    check(Array.isArray(v)||Object.getPrototypeOf(v)===Object.prototype||Object.getPrototypeOf(v)===null);
+    const array=Array.isArray(v);
+    if(ADMISSION_MODE==='STRICT_JSON_RECORDS')check(array?ordinaryArray(v):ordinaryRecord(v));
+    const keys=Reflect.ownKeys(v);
+    check(keys.length<=LIMITS.jsonNodes,'SOURCE_SCAN_LIMIT');
+    for(const key of keys) {
+      check(typeof key==='string'&&!['__proto__','prototype','constructor','toJSON'].includes(key));
+      const descriptor=Object.getOwnPropertyDescriptor(v,key);
+      check(descriptor&&'value' in descriptor&&(descriptor.enumerable===true||array&&key==='length'));
+    }
     ancestors.add(v);
     let out;
-    if(Array.isArray(v)) {
-      check(v.length<=LIMITS.jsonNodes,'SOURCE_SCAN_LIMIT');
+    if(array) {
+      const length=Object.getOwnPropertyDescriptor(v,'length').value;
+      check(Number.isSafeInteger(length)&&length>=0&&length<=LIMITS.jsonNodes,'SOURCE_SCAN_LIMIT');
+      check(keys.length===length+1);
       out=[];
-      for(let i=0;i<v.length;i++) { const d=Object.getOwnPropertyDescriptor(v,String(i));check(d&&'value' in d);out.push(visit(d.value,depth+1)); }
+      for(let i=0;i<length;i++) { const d=Object.getOwnPropertyDescriptor(v,String(i));check(d&&'value' in d);out.push(visit(d.value,depth+1)); }
     } else {
-      out={};
-      for(const k of Object.keys(v)) {
-        check(!['__proto__','prototype','constructor'].includes(k));
+      // An opaque sandbox gives no prototype attestation. Project only own
+      // data into fresh null-prototype records; never read inherited values.
+      out=ADMISSION_MODE==='SANDBOX_OWN_DATA_COPY'?Object.create(null):{};
+      for(const k of keys) {
         const d=Object.getOwnPropertyDescriptor(v,k);check(d&&'value' in d);
         characters+=k.length;check(characters<=LIMITS.jsonCharacters,'SOURCE_SCAN_LIMIT');
         out[k]=visit(d.value,depth+1);
@@ -141,13 +194,13 @@ function scanSources(input) {
   }
   metadata(reader);
   const blocked=findingCount>0;
-  const scan={policy:POLICY,status:blocked?'REVIEW_REQUIRED':'NO_BLOCKING_PATTERN_DETECTED',
+  const scan={policy:POLICY,admissionMode:ADMISSION_MODE,status:blocked?'REVIEW_REQUIRED':'NO_BLOCKING_PATTERN_DETECTED',
     admissibility:blocked?'REVIEW_REQUIRED':'UNTRUSTED_DATA_ONLY',
     counts:{files:reader.files.length,documents:reader.documents.length,chunks:reader.chunks.length,characters},
     findings,findingCount,findingsTruncated:findingCount>findings.length,
     limitations:['HEURISTIC_NOT_PROOF_OF_SAFETY','NO_ANTIVIRUS','NO_OCR','NO_IMAGE_TEXT_OR_HIDDEN_BINARY_INSPECTION','NO_FACT_OR_COPYRIGHT_VERIFICATION'],
     instructionPolicy:'QUOTED_DATA_ONLY_NO_TOOL_OR_PERMISSION_AUTHORITY'};
-  // The private original survives intact for review. A blocked document has no
+  // The private source data survive intact for review. A blocked document has no
   // provider-bound variant; deleting suspicious lines would lose this guarantee.
   return {reader,providerReader:blocked?null:jsonClone(reader),scan,blocked};
 }
@@ -156,4 +209,4 @@ function assertSourcesSafe(reader) {
   if(result.blocked) { const e=new Error('SOURCE_SCAN_REVIEW_REQUIRED');e.code='SOURCE_SCAN_REVIEW_REQUIRED';e.scan=jsonClone(result.scan);throw e; }
   return {reader:result.providerReader,scan:result.scan};
 }
-module.exports={POLICY,LIMITS,scanSources,assertSourcesSafe};
+module.exports={POLICY,LIMITS,ADMISSION_MODE,scanSources,assertSourcesSafe};

@@ -49,14 +49,19 @@
     "installation_uuids": 47
   },
   "new_public_guides": [
+    "docs/E2E.md",
     "docs/RESSOURCES-AGENTS.md",
     "docs/SOURCE-SAFETY.md"
   ],
   "verification": {
-    "scope": "Focused structured reply decoder update",
-    "adapter_tests": 36,
+    "scope": "Focused source representation, rescanning and image-review update",
+    "node_source_cases": 105,
+    "node_adapter_cases": 43,
+    "node_decision_cases": 9,
+    "node_cases_passed": 157,
     "workflow_generator": "passed_with_example_child_ids",
     "generated_entry_sdk_matches_source": true,
+    "entry_nodes": 26,
     "typescript": "passed_on_canonical_server",
     "frontend_build": "passed_on_canonical_server",
     "previously_passed_unchanged_python_tests": 79,
@@ -74,10 +79,12 @@
     "Private operational documentation and mappings intentionally excluded"
   ],
   "excluded_private_test": "Static operational-wrapper test omitted because its private deployment recipe is not part of the public source; pure diagnostics and hook tests are retained.",
-  "files": 60,
-  "latest_update": "Strict structured reply decoder accepts native decoded objects or JSON text under the same closed reply schema; private operational documentation excluded.",
+  "files": 61,
+  "latest_update": "Cross-context source admission, detached rescanned context and bound image-review blocking; public verification guide distinguishes historical counts.",
   "latest_source_paths": [
     "integrations/n8n/build_web_workflows.py",
+    "integrations/n8n/source-scan.cjs",
+    "integrations/n8n/source-scan.test.cjs",
     "integrations/n8n/web-adapter.cjs",
     "integrations/n8n/web-adapter.test.cjs",
     "integrations/n8n/web/entry.sdk.js",

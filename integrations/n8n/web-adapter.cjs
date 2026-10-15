@@ -53,19 +53,44 @@ function readerInput(p) {
   return request;
 }
 
+function readerBinding(p, reader) {
+  if (p.source) {
+    const requested = sourceRequest(p);
+    check(reader && Object.keys(requested.binding).every(k => reader.binding?.[k] === requested.binding[k]) && reader.root_folder_id === requested.root_folder_id, 'WEB_READER_BINDING_MISMATCH');
+    return requested;
+  }
+  check(reader === undefined, 'WEB_UNREQUESTED_READER');
+  return null;
+}
+
 function context(p, reader) {
+  // Only the scanner's projected own data may enter binding checks or Jev.
+  if (reader !== undefined) reader = S.assertSourcesSafe(reader).reader;
   const latest = p.history.find(m => m.id === p.latestMessageId);
   const base = {project_id:'web_' + p.projectId,revision:p.revision,latest_message:latest,
     history:p.history.filter(m => m.id !== latest.id),facts:{},history_complete:p.historyComplete,
     resumes:p.resumes};
-  if (p.source) {
-    const requested = sourceRequest(p);
-    check(reader && Object.keys(requested.binding).every(k => reader.binding?.[k] === requested.binding[k]) && reader.root_folder_id === requested.root_folder_id, 'WEB_READER_BINDING_MISMATCH');
-    S.assertSourcesSafe(reader);
+  const requested = readerBinding(p, reader);
+  if (requested) {
     base.document_sources = reader;
     base.document_binding = {...requested.binding,client_text:p.source.text};
-  } else check(reader === undefined, 'WEB_UNREQUESTED_READER');
+  }
   return E.normalizeInput(base);
+}
+
+function decisionInput(p, packet) {
+  let reader = packet?.parent?.document_sources;
+  const bundle = packet?.parent?.asset_bundle;
+  // Images can downgrade a valid read to REVIEW_REQUIRED (e.g. JPEG/WebP).
+  // Preserve source binding checks before returning even a blocked result.
+  if (reader !== undefined) {
+    const admission = S.scanSources(reader);
+    reader = admission.reader;
+    readerBinding(p, reader);
+    if (admission.blocked) return {result:sourceBlocked(p,admission.reader,admission.scan)};
+  } else readerBinding(p, reader);
+  return {context:context(p,reader),binding:{channel:'web',project_id:'web_'+p.projectId},
+    ...(reader ? {reader}:{}),...(bundle ? {bundle}:{})};
 }
 
 function sourceSummary(reader) {
@@ -190,4 +215,4 @@ function polled(p, response) {
     {...p.context,...(proof?{buildProof:proof}:{})},done?'La maquette attend une validation humaine avant livraison.':running?'La construction et la revue sont en cours.':'La construction n’a pas été validée. Contactez le support avant de relancer.');
 }
 
-module.exports={validate,sourceRequest,readerInput,context,sourceSummary,result,replyText,analysisResult,buildInput,submitted,polled,scanSummary,sourceBlocked};
+module.exports={validate,sourceRequest,readerInput,context,decisionInput,sourceSummary,result,replyText,analysisResult,buildInput,submitted,polled,scanSummary,sourceBlocked};
