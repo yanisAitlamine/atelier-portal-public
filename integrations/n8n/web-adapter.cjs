@@ -79,6 +79,22 @@ function result(p, pipeline, privateState, reply) {
     reply,pipeline,private:privateState};
 }
 
+function replyText(raw) {
+  const messages = Array.isArray(raw?.output) ? raw.output.filter(x => x?.type === 'message') : [];
+  const texts = messages.flatMap(x => Array.isArray(x.content) ? x.content : []).filter(x => x?.type === 'output_text');
+  check(texts.length === 1, 'WEB_REPLY_MISSING');
+  let parsed = texts[0].text;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { throw Error('WEB_REPLY_INVALID'); }
+  }
+  // OpenAI v2 parses json_schema content.text itself. Both native forms must
+  // pass the same strict reply schema; neither can supply a pipeline decision.
+  check(parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+    && Object.keys(parsed).join('|') === 'reply' && typeof parsed.reply === 'string'
+    && parsed.reply.length >= 3 && parsed.reply.length <= 8000, 'WEB_REPLY_INVALID');
+  return parsed.reply;
+}
+
 function scanSummary(scan){return {policy:scan.policy,status:scan.status,findingCount:scan.findingCount,reasonCodes:[...new Set(scan.findings.map(f=>f.code))]};}
 function sourceBlocked(p,reader,scan){
   check(scan.status==='REVIEW_REQUIRED','WEB_SOURCE_SCAN_INVALID');
@@ -174,4 +190,4 @@ function polled(p, response) {
     {...p.context,...(proof?{buildProof:proof}:{})},done?'La maquette attend une validation humaine avant livraison.':running?'La construction et la revue sont en cours.':'La construction n’a pas été validée. Contactez le support avant de relancer.');
 }
 
-module.exports={validate,sourceRequest,readerInput,context,sourceSummary,result,analysisResult,buildInput,submitted,polled,scanSummary,sourceBlocked};
+module.exports={validate,sourceRequest,readerInput,context,sourceSummary,result,replyText,analysisResult,buildInput,submitted,polled,scanSummary,sourceBlocked};

@@ -427,7 +427,7 @@
         "description": "Dossier autorisé, fichiers complets et citations localisées ; aucune construction ni livraison."
       }
     ],
-    "sourceVersion": "afdc6311-b9e7-48be-96ab-63a756ca8848"
+    "sourceVersion": null
   },
   "EXAMPLE_WORKFLOW_002": {
     "name": "SERVICE — Images Drive privées pour la maquette",
@@ -858,7 +858,7 @@
         "description": "Empreintes natives, transfert TLS privé et dépôt lié au projet ; aucune construction ni livraison."
       }
     ],
-    "sourceVersion": "169eb38c-0aa2-473d-a288-a5fa9b3003f0"
+    "sourceVersion": null
   },
   "EXAMPLE_WORKFLOW_004": {
     "name": "SERVICE — Décisions Jev du dialogue commercial",
@@ -1324,7 +1324,7 @@
         "description": "Le brief réel est vérifié, Jev choisit ses citations et décide; les données incertaines restent à revoir."
       }
     ],
-    "sourceVersion": "c7b6a16a-a657-4411-b130-27cf90ee55bb"
+    "sourceVersion": null
   },
   "EXAMPLE_WORKFLOW_008": {
     "name": "PIPELINE — 3. Maquette puis validation humaine",
@@ -1394,7 +1394,7 @@
     ],
     "connections": {},
     "nodeGroups": [],
-    "sourceVersion": "8ebf051b-2843-48f9-9a06-eae057abdf24"
+    "sourceVersion": null
   },
   "EXAMPLE_WORKFLOW_005": {
     "name": "Test Frontend — Atelier : dialogue et maquette privée",
@@ -1482,6 +1482,6 @@
     ],
     "connections": {},
     "nodeGroups": [],
-    "sourceVersion": "1fde708c-c6c8-4f6c-a69a-7b1883e21c68"
+    "sourceVersion": null
   }
 }

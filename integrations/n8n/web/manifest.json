@@ -8,7 +8,8 @@
       "versionId": "00000000-0000-4000-8000-000000000005",
       "active": false,
       "availableInMCP": false,
-      "nodeCount": 12
+      "nodeCount": 12,
+      "activeVersionId": null
     },
     "assets": {
       "id": "EXAMPLE_WORKFLOW_007",
@@ -16,23 +17,26 @@
       "versionId": "00000000-0000-4000-8000-00000000000b",
       "active": false,
       "availableInMCP": false,
-      "nodeCount": 12
+      "nodeCount": 12,
+      "activeVersionId": null
     },
     "decision": {
       "id": "EXAMPLE_WORKFLOW_009",
       "name": "PORTAIL — Décision Jev et citations du brief",
-      "versionId": "00000000-0000-4000-8000-000000000018",
+      "versionId": "00000000-0000-4000-8000-000000000019",
       "active": false,
       "availableInMCP": false,
-      "nodeCount": 13
+      "nodeCount": 13,
+      "activeVersionId": null
     },
     "entry": {
       "id": "EXAMPLE_WORKFLOW_003",
       "name": "PORTAIL — Dialogue, Drive et maquette revue",
-      "versionId": "00000000-0000-4000-8000-000000000010",
+      "versionId": "00000000-0000-4000-8000-000000000015",
       "active": false,
       "availableInMCP": false,
-      "nodeCount": 25
+      "nodeCount": 25,
+      "activeVersionId": null
     }
   }
 }

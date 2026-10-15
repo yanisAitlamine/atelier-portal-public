@@ -71,3 +71,19 @@ indépendante. Un lien accessible seul ne prouve jamais la validation. Les tests
 `tests/test_pipeline.py` et `integrations/n8n/web-adapter.test.cjs` couvrent le
 reçu canonique et les variantes refusées. Cette correction de source n'annonce
 aucune installation du service ou activation du workflow.
+
+## Décodage strict de la réponse conversationnelle
+
+`W.replyText`, dans `integrations/n8n/web-adapter.cjs`, lit exactement un bloc
+`output_text` de l'enveloppe de réponse. Selon le nœud fournisseur, son champ
+`text` peut déjà être un objet décodé par `json_schema` ou encore un texte JSON.
+Le décodeur analyse seulement le second cas, puis applique le même schéma aux
+deux formes : objet non nul, hors tableau, avec la seule clé `reply`, chaîne de
+3 à 8 000 unités de longueur JavaScript. Il n'accepte ni réponse multiple,
+JSON mal formé, valeur primitive, clé ajoutée ou longueur hors limite.
+
+Ce décodeur transporte une réponse de chat ; il n'autorise aucune décision,
+construction, variation de prix ou publication. Les vérifications Jev, de
+propriété, de révision, de consentement et de preuve restent séparées. Les tests
+fictifs du module et la génération SDK couvrent le contrat ; ils ne prouvent
+aucun appel réel du fournisseur ni installation du workflow corrigé.
